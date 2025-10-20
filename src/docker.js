@@ -1,0 +1,101 @@
+const { runCommand, runCommandStreaming } = require("./utils");
+
+const dockerCommand = (args, options = {}) => runCommand("docker", args, options);
+const dockerCommandStreaming = (args, options = {}) =>
+  runCommandStreaming("docker", args, options);
+
+const imageExists = async (tag) => {
+  try {
+    await dockerCommand(["image", "inspect", tag]);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const buildImage = async (tag, contextDir, options = {}) => {
+  const args = ["build", "-t", tag, contextDir];
+  if (options.noCache) {
+    args.splice(1, 0, "--no-cache");
+  }
+  if (options.buildArgs) {
+    Object.entries(options.buildArgs).forEach(([key, value]) => {
+      args.splice(1, 0, "--build-arg", `${key}=${value}`);
+    });
+  }
+  await dockerCommandStreaming(args, { cwd: contextDir });
+};
+
+const containerExists = async (name) => {
+  const { stdout } = await dockerCommand([
+    "ps",
+    "-a",
+    "-q",
+    "--filter",
+    `name=^${name}$`,
+  ]);
+  return stdout.trim().length > 0;
+};
+
+const containerRunning = async (name) => {
+  const { stdout } = await dockerCommand([
+    "ps",
+    "-q",
+    "--filter",
+    `name=^${name}$`,
+    "--filter",
+    "status=running",
+  ]);
+  return stdout.trim().length > 0;
+};
+
+const createContainer = async (args, options = {}) => {
+  await dockerCommandStreaming(["run", ...args], options);
+};
+
+const startContainer = async (name) => {
+  await dockerCommandStreaming(["start", name]);
+};
+
+const stopContainer = async (name) => {
+  await dockerCommandStreaming(["stop", name]);
+};
+
+const removeContainer = async (name, { force = false } = {}) => {
+  if (force) {
+    await dockerCommandStreaming(["rm", "-f", name]);
+  } else {
+    await dockerCommandStreaming(["rm", name]);
+  }
+};
+
+const removeVolumes = async (volumes = []) => {
+  if (!volumes.length) {
+    return;
+  }
+  await dockerCommandStreaming(["volume", "rm", ...volumes]);
+};
+
+const inspectContainer = async (name) => {
+  try {
+    const { stdout } = await dockerCommand(["inspect", name]);
+    return JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+};
+
+module.exports = {
+  dockerCommand,
+  dockerCommandStreaming,
+  imageExists,
+  buildImage,
+  containerExists,
+  containerRunning,
+  createContainer,
+  startContainer,
+  stopContainer,
+  removeContainer,
+  removeVolumes,
+  inspectContainer,
+};

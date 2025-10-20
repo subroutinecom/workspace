@@ -1,0 +1,21 @@
+services:
+  web:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    command: npm run dev
+    ports:
+      - "5173:5173"
+      - "5172:5172"
+    environment:
+      PORT: 5173
+      SERVER_PORT: 5172
+      CORS_ALLOW_ORIGIN: "*"
+    volumes:
+      - ./app:/usr/src/app
+      - node_modules:/usr/src/app/node_modules
+    tty: true
+    stdin_open: true
+
+volumes:
+  node_modules:
