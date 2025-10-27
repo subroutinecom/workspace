@@ -65,6 +65,22 @@ RUN curl -fsSL https://github.com/neovim/neovim/releases/latest/download/nvim-li
     && rm /tmp/nvim.appimage \
     && nvim --version
 
+# Install GitHub CLI (gh)
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/* \
+    && gh --version
+
+# Install opencode CLI
+RUN curl -fsSL "https://github.com/opencode-ai/opencode/releases/latest/download/opencode-linux-x86_64.tar.gz" -o /tmp/opencode.tar.gz \
+    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin \
+    && rm /tmp/opencode.tar.gz \
+    && chmod +x /usr/local/bin/opencode \
+    && opencode --version
+
 # Install yarn globally via npm
 RUN npm install -g yarn
 

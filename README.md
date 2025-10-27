@@ -8,7 +8,7 @@ Self-contained CLI for Docker-in-Docker development environments with SSH access
 - **SSH Access** - Auto-generated keys, agent forwarding
 - **Port Forwarding** - SSH tunnels for development servers
 - **Neovim + LazyVim** - v0.11.4 with LazyVim pre-configured
-- **Development Tools** - Node.js, Python, Git, ripgrep, fd-find
+- **Development Tools** - Node.js, Python, Git, GitHub CLI (gh), opencode, ripgrep, fd-find
 - **Persistent Volumes** - Home directory, Docker data, cache
 - **Bootstrap Scripts** - Run custom setup scripts on initialization
 - **Minimal Dependencies** - Three npm packages (commander, fs-extra, yaml)
@@ -91,6 +91,8 @@ workspace help [command]        # Show help
 
 **Tools:**
 - ripgrep, fd-find (for LazyVim/Telescope)
+- GitHub CLI (gh)
+- opencode (AI coding agent)
 - curl, wget, jq, rsync
 - vim, nano, unzip, zip
 

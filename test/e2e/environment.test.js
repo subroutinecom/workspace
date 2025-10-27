@@ -183,6 +183,35 @@ describe("Workspace Environment", () => {
     console.log(`    → Python ${versionMatch[1]} installed ✓`);
   });
 
+  it("should have GitHub CLI (gh) installed", async () => {
+    console.log("  ✓ Checking GitHub CLI (gh)...");
+
+    const ghVersion = execInWorkspace(TEST_WORKSPACE_NAME, "gh --version");
+    assert.ok(ghVersion.includes("gh version"), "GitHub CLI should be installed");
+
+    const versionMatch = ghVersion.match(/gh version (\d+\.\d+\.\d+)/);
+    assert.ok(versionMatch, "Should be able to parse gh version");
+
+    console.log(`    → GitHub CLI v${versionMatch[1]} installed ✓`);
+  });
+
+  it("should have opencode CLI installed", async () => {
+    console.log("  ✓ Checking opencode CLI...");
+
+    const opencodeVersion = execInWorkspace(TEST_WORKSPACE_NAME, "opencode --version");
+    assert.ok(opencodeVersion.length > 0, "opencode CLI should be installed");
+
+    // opencode outputs version info
+    const versionMatch = opencodeVersion.match(/opencode (\d+\.\d+\.\d+)/i) ||
+                         opencodeVersion.match(/(\d+\.\d+\.\d+)/);
+
+    if (versionMatch) {
+      console.log(`    → opencode v${versionMatch[1]} installed ✓`);
+    } else {
+      console.log(`    → opencode installed ✓`);
+    }
+  });
+
   it("should have essential development tools", async () => {
     console.log("  ✓ Checking essential dev tools...");
 
