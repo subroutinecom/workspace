@@ -21,10 +21,10 @@ const discoverRepoRoot = async (cwd = process.cwd()) => {
   }
 };
 
-const getGitRemote = async (repoRoot) => {
+const getGitRemote = async (configDir) => {
   try {
     const { stdout } = await runCommand("git", ["config", "--get", "remote.origin.url"], {
-      cwd: repoRoot,
+      cwd: configDir,
     });
     return stdout || "";
   } catch {
@@ -32,10 +32,10 @@ const getGitRemote = async (repoRoot) => {
   }
 };
 
-const getGitBranch = async (repoRoot) => {
+const getGitBranch = async (configDir) => {
   try {
     const { stdout } = await runCommand("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      cwd: repoRoot,
+      cwd: configDir,
     });
     return stdout || "main";
   } catch {
@@ -43,9 +43,9 @@ const getGitBranch = async (repoRoot) => {
   }
 };
 
-const buildDefaultConfig = async (repoRoot) => {
-  const remote = await getGitRemote(repoRoot);
-  const branch = await getGitBranch(repoRoot);
+const buildDefaultConfig = async (configDir) => {
+  const remote = await getGitRemote(configDir);
+  const branch = await getGitBranch(configDir);
 
   return {
     repo: {
@@ -56,12 +56,12 @@ const buildDefaultConfig = async (repoRoot) => {
   };
 };
 
-const configExists = async (repoRoot, filename = DEFAULT_CONFIG_FILENAME) =>
-  fsExtra.pathExists(path.join(repoRoot, filename));
+const configExists = async (configDir, filename = DEFAULT_CONFIG_FILENAME) =>
+  fsExtra.pathExists(path.join(configDir, filename));
 
-const writeConfig = async (repoRoot, config, options = {}) => {
+const writeConfig = async (configDir, config, options = {}) => {
   const configPath = path.join(
-    repoRoot,
+    configDir,
     options.filename || DEFAULT_CONFIG_FILENAME,
   );
   const yamlContents = yaml.stringify(config, { indent: 2 });
@@ -69,31 +69,25 @@ const writeConfig = async (repoRoot, config, options = {}) => {
   return configPath;
 };
 
-const loadConfig = async (repoRoot, filename = DEFAULT_CONFIG_FILENAME) => {
-  const configPath = path.join(repoRoot, filename);
+const loadConfig = async (configDir, filename = DEFAULT_CONFIG_FILENAME) => {
+  const configPath = path.join(configDir, filename);
   const contents = await fsExtra.readFile(configPath, "utf8");
   return yaml.parse(contents);
 };
 
-const resolveConfig = async (config, repoRoot, { workspaceNameOverride, gitRepoRoot } = {}) => {
+const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) => {
   if (!config) {
     throw new Error("Invalid configuration");
   }
 
-  // Derive workspace name from override or repo root
-  const name = workspaceNameOverride || path.basename(repoRoot);
+  // Derive workspace name from override or directory name
+  const name = workspaceNameOverride || path.basename(configDir);
   const imageTag = `workspace/${name}:latest`;
   const containerName = `workspace-${name}`;
 
-  // Calculate relative path from git repo root to config directory
-  // This is used to resolve bootstrap scripts inside the container
-  const actualGitRoot = gitRepoRoot || (await discoverRepoRoot(repoRoot));
-  const configDirRelative = path.relative(actualGitRoot, repoRoot);
-
-  // Template directory (stored in state dir, not in repo)
+  // State directory
   const stateRoot = path.join(os.homedir(), ".workspaces");
   const stateDir = path.join(stateRoot, name);
-  const templateAbsolute = path.join(stateDir, ".workspace");
 
   // Repository configuration
   const repoRemote = (config.repo && config.repo.remote) || "";
@@ -129,16 +123,15 @@ const resolveConfig = async (config, repoRoot, { workspaceNameOverride, gitRepoR
   return {
     raw: config,
     paths: {
-      repoRoot,
-      configFile: path.join(repoRoot, DEFAULT_CONFIG_FILENAME),
+      configDir,
+      configFile: path.join(configDir, DEFAULT_CONFIG_FILENAME),
     },
     workspace: {
       name,
       imageTag,
       containerName,
-      templateDir: {
-        absolute: templateAbsolute,
-      },
+      configDir,
+      buildContext: TEMPLATE_SOURCE,
       repo: {
         remote: repoRemote,
         branch: repoBranch,
@@ -146,7 +139,6 @@ const resolveConfig = async (config, repoRoot, { workspaceNameOverride, gitRepoR
       forwards,
       bootstrap: {
         scripts: bootstrapScripts,
-        configDirRelative,
       },
       state: {
         root: stateDir,

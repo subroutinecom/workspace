@@ -48,18 +48,18 @@ const parseInteger = (value, dummyPrevious) => {
 };
 
 const resolveWorkspaceContext = async (workspaceName, options = {}) => {
-  const repoRoot = options.path
+  const configDir = options.path
     ? path.resolve(options.path)
     : await discoverRepoRoot(process.cwd());
-  const packagesRoot = path.join(repoRoot, "packages");
+  const packagesRoot = path.join(configDir, "packages");
   const workspaceRoot = workspaceName
     ? path.join(packagesRoot, workspaceName)
-    : repoRoot;
-  return { repoRoot, packagesRoot, workspaceRoot };
+    : configDir;
+  return { configDir, packagesRoot, workspaceRoot };
 };
 
 const withConfig = async (options = {}, workspaceName) => {
-  const { workspaceRoot, packagesRoot, repoRoot } = await resolveWorkspaceContext(
+  const { workspaceRoot, packagesRoot, configDir } = await resolveWorkspaceContext(
     workspaceName,
     options,
   );
@@ -75,9 +75,8 @@ const withConfig = async (options = {}, workspaceName) => {
       const raw = await loadConfig(root, configFilename);
       const resolved = await resolveConfig(raw, root, {
         workspaceNameOverride: workspaceName,
-        gitRepoRoot: repoRoot,
       });
-      return { repoRoot: root, raw, resolved, packagesRoot };
+      return { configDir: root, raw, resolved, packagesRoot };
     } catch (err) {
       if (err.code !== "ENOENT") {
         throw err;
@@ -154,15 +153,12 @@ const writeRuntimeMetadata = async (resolved, runtime) => {
 
 const ensureImage = async (resolved, { rebuild = false, noCache = false } = {}) => {
   const imageTag = resolved.workspace.imageTag;
-  const templateDir = resolved.workspace.templateDir.absolute;
-
-  // Ensure template exists in state directory
-  await ensureTemplate(templateDir);
+  const buildContext = resolved.workspace.buildContext;
 
   const imagePresent = await imageExists(imageTag);
   if (!imagePresent || rebuild) {
     console.log(`Building workspace image ${imageTag}...`);
-    await buildImage(imageTag, templateDir, { noCache });
+    await buildImage(imageTag, buildContext, { noCache });
   }
 };
 
@@ -207,7 +203,7 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
 
   addEnv("SSH_PUBLIC_KEY", sshKeyInfo.publicKey);
   addEnv("WORKSPACE_RUNTIME_CONFIG", "/workspace/config/runtime.json");
-  addEnv("WORKSPACE_TEMPLATE_ROOT", "/workspace/template");
+  addEnv("WORKSPACE_SOURCE_DIR", "/workspace/source");
   addEnv("HOST_HOME", "/host/home");
   addEnv("WORKSPACE_ASSIGNED_SSH_PORT", runtime.sshPort);
   addEnv("WORKSPACE_REPO_URL", resolved.workspace.repo.remote);
@@ -219,7 +215,7 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   );
   runArgs.push(
     "-v",
-    `${resolved.workspace.templateDir.absolute}:/workspace/template:ro`,
+    `${resolved.workspace.configDir}:/workspace/source:ro`,
   );
 
   // Always mount host home directory
@@ -310,7 +306,7 @@ program
   .action(async (workspaceName, options) => {
     const { resolved } = await withConfig(options, workspaceName);
     console.log(`Building image ${resolved.workspace.imageTag}...`);
-    await buildImage(resolved.workspace.imageTag, resolved.workspace.templateDir.absolute, {
+    await buildImage(resolved.workspace.imageTag, resolved.workspace.buildContext, {
       noCache: options.noCache,
     });
   });
