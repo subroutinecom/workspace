@@ -9,6 +9,11 @@
   "bin": {
     "workspace": "./src/index.js"
   },
+  "scripts": {
+    "test": "node --test",
+    "test:e2e": "node --test test/e2e",
+    "test:watch": "node --test --watch"
+  },
   "engines": {
     "node": ">=18"
   },
