@@ -95,6 +95,28 @@ configure_shell_helpers() {
   fi
 }
 
+install_lazyvim() {
+  local nvim_config_dir="${WORKSPACE_HOME}/.config/nvim"
+
+  # Only install if Neovim config doesn't exist
+  if [[ ! -d "${nvim_config_dir}" ]]; then
+    log "Installing LazyVim..."
+
+    # Clone LazyVim starter
+    if git clone https://github.com/LazyVim/starter "${nvim_config_dir}" 2>/dev/null; then
+      # Remove .git folder to make it user's own config
+      rm -rf "${nvim_config_dir}/.git"
+
+      # Ensure proper ownership
+      chown -R workspace:workspace "${WORKSPACE_HOME}/.config"
+
+      log "LazyVim installed. Plugins will install on first 'nvim' launch."
+    else
+      log "Warning: Failed to install LazyVim. You can install it manually later."
+    fi
+  fi
+}
+
 run_post_init_commands() {
   if [[ ! -f "${RUNTIME_CONFIG}" ]]; then
     return
@@ -178,6 +200,7 @@ PY
 copy_git_config
 clone_repository
 configure_shell_helpers
+install_lazyvim
 run_post_init_commands
 run_bootstrap_scripts
 

@@ -51,7 +51,19 @@ RUN apt-get update && apt-get install -y \
     kmod \
     openssl \
     procps \
+    ripgrep \
+    fd-find \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Neovim v0.11.4 via AppImage (extract since FUSE isn't available in containers)
+RUN curl -fsSL https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.appimage -o /tmp/nvim.appimage \
+    && chmod +x /tmp/nvim.appimage \
+    && cd /tmp \
+    && ./nvim.appimage --appimage-extract >/dev/null 2>&1 \
+    && mv squashfs-root /opt/nvim \
+    && ln -s /opt/nvim/AppRun /usr/local/bin/nvim \
+    && rm /tmp/nvim.appimage \
+    && nvim --version
 
 # Install yarn globally via npm
 RUN npm install -g yarn

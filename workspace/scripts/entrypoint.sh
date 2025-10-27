@@ -6,6 +6,9 @@
 echo "[entrypoint] Adding SSH key..."
 /opt/workspace/add-ssh-key.sh || echo "[entrypoint] Failed to add SSH key (non-fatal)"
 
+echo "[entrypoint] Fixing workspace directory permissions..."
+chown -R workspace:workspace /home/workspace/.cache 2>/dev/null || true
+
 echo "[entrypoint] Starting Docker daemon..."
 /usr/local/bin/dockerd-entrypoint.sh dockerd \
   --host=unix:///var/run/docker.sock \
