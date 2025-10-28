@@ -2,7 +2,7 @@ const path = require("path");
 const os = require("os");
 const fsExtra = require("fs-extra");
 
-const STATE_FILE = path.join(os.homedir(), ".workspaces", "state.json");
+const STATE_FILE = path.join(os.homedir(), ".workspaces", "state", "state.json");
 const DEFAULT_STATE = {
   nextSshPort: 4200,
   workspaces: {},
@@ -57,7 +57,7 @@ const removeWorkspaceState = async (workspaceName) => {
   }
 
   // Remove the workspace state directory
-  const stateDir = path.join(os.homedir(), ".workspaces", workspaceName);
+  const stateDir = path.join(os.homedir(), ".workspaces", "state", workspaceName);
   if (await fsExtra.pathExists(stateDir)) {
     await fsExtra.remove(stateDir);
   }

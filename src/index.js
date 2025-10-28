@@ -218,6 +218,15 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
     `${resolved.workspace.configDir}:/workspace/source:ro`,
   );
 
+  // Mount user scripts directory if it exists
+  const userScriptsDir = path.join(os.homedir(), ".workspaces", "userscripts");
+  if (fs.existsSync(userScriptsDir)) {
+    runArgs.push(
+      "-v",
+      `${userScriptsDir}:/workspace/userscripts:ro`,
+    );
+  }
+
   // Always mount host home directory
   const hostHome = os.homedir();
   if (fs.existsSync(hostHome)) {

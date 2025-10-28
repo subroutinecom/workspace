@@ -60,6 +60,22 @@ forwards:
 
 Bootstrap scripts run from the directory containing `.workspace.yml` and execute as the `workspace` user with passwordless sudo.
 
+## User Scripts
+
+Add personal bootstrap scripts to `~/.workspaces/userscripts/` - they automatically run after project scripts in all workspaces.
+
+```bash
+mkdir -p ~/.workspaces/userscripts
+cat > ~/.workspaces/userscripts/setup-shell.sh << 'EOF'
+#!/bin/bash
+# Install oh-my-zsh, copy dotfiles, etc.
+cp /host/home/.zshrc ~/.zshrc
+EOF
+chmod +x ~/.workspaces/userscripts/setup-shell.sh
+```
+
+Scripts run alphabetically. Use prefixes to control order: `01-shell.sh`, `02-tools.sh`. Never committed to git.
+
 ## Commands
 
 ```bash
@@ -105,8 +121,11 @@ workspace help [command]        # Show help
 ## State Management
 
 Workspace state lives in `~/.workspaces/`:
-- `~/.workspaces/state.json` - Port assignments
-- `~/.workspaces/<name>/` - SSH keys, runtime config
+- `~/.workspaces/userscripts/` - User bootstrap scripts (optional, runs in all workspaces)
+- `~/.workspaces/state/` - Workspace state data
+  - `state.json` - Port assignments
+  - `<name>/ssh/` - SSH keys per workspace
+  - `<name>/runtime.json` - Runtime config per workspace
 
 SSH ports auto-increment from 4200. Each workspace gets:
 - Unique SSH port

@@ -86,7 +86,7 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
   const containerName = `workspace-${name}`;
 
   // State directory
-  const stateRoot = path.join(os.homedir(), ".workspaces");
+  const stateRoot = path.join(os.homedir(), ".workspaces", "state");
   const stateDir = path.join(stateRoot, name);
 
   // Repository configuration

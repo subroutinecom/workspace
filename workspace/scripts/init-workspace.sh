@@ -179,32 +179,48 @@ except Exception:
 PY
   )
 
-  if [[ ${#scripts[@]} -eq 0 ]]; then
-    return
+  if [[ ${#scripts[@]} -gt 0 ]]; then
+    log "Running project bootstrap scripts..."
+    for script in "${scripts[@]}"; do
+      local script_path="${script_dir}/${script}"
+
+      if [[ ! -f "${script_path}" ]]; then
+        log "ERROR: Bootstrap script not found: ${script_path}"
+        log "Scripts should be in the directory with .workspace.yml"
+        return 1
+      fi
+
+      if [[ ! -x "${script_path}" ]]; then
+        log "ERROR: Bootstrap script is not executable: ${script_path}"
+        log "Hint: Run 'chmod +x ${script}' on your host machine"
+        return 1
+      fi
+
+      log "→ ${script}"
+      if ! (cd "${WORKSPACE_HOME}" && "${script_path}"); then
+        log "ERROR: Bootstrap script failed: ${script}"
+        return 1
+      fi
+    done
   fi
 
-  log "Running bootstrap scripts..."
-  for script in "${scripts[@]}"; do
-    local script_path="${script_dir}/${script}"
+  # Run user scripts from ~/.workspaces/userscripts/ (if directory exists and is mounted)
+  if [[ -d "/workspace/userscripts" ]]; then
+    # Find all executable files, sorted alphabetically
+    mapfile -t userscripts < <(find /workspace/userscripts -maxdepth 1 -type f -executable | sort)
 
-    if [[ ! -f "${script_path}" ]]; then
-      log "ERROR: Bootstrap script not found: ${script_path}"
-      log "Scripts should be in the directory with .workspace.yml"
-      return 1
+    if [[ ${#userscripts[@]} -gt 0 ]]; then
+      log "Running user bootstrap scripts..."
+      for script_path in "${userscripts[@]}"; do
+        local script_name=$(basename "${script_path}")
+        log "→ ${script_name}"
+        if ! (cd "${WORKSPACE_HOME}" && "${script_path}"); then
+          log "ERROR: User script failed: ${script_name}"
+          return 1
+        fi
+      done
     fi
-
-    if [[ ! -x "${script_path}" ]]; then
-      log "ERROR: Bootstrap script is not executable: ${script_path}"
-      log "Hint: Run 'chmod +x ${script}' on your host machine"
-      return 1
-    fi
-
-    log "→ ${script}"
-    if ! (cd "${WORKSPACE_HOME}" && "${script_path}"); then
-      log "ERROR: Bootstrap script failed: ${script}"
-      return 1
-    fi
-  done
+  fi
 }
 
 copy_git_config
