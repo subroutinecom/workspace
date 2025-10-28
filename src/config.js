@@ -82,7 +82,7 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
 
   // Derive workspace name from override or directory name
   const name = workspaceNameOverride || path.basename(configDir);
-  const imageTag = `workspace/${name}:latest`;
+  const imageTag = 'workspace:latest';
   const containerName = `workspace-${name}`;
 
   // State directory

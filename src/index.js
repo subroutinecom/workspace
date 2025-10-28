@@ -309,13 +309,13 @@ program
 
 program
   .command("build")
-  .description("Build the workspace Docker image")
-  .argument("<workspace>", "name of the workspace under packages/")
+  .description("Build the shared workspace Docker image")
   .option("--no-cache", "build without using Docker cache")
-  .action(async (workspaceName, options) => {
-    const { resolved } = await withConfig(options, workspaceName);
-    console.log(`Building image ${resolved.workspace.imageTag}...`);
-    await buildImage(resolved.workspace.imageTag, resolved.workspace.buildContext, {
+  .action(async (options) => {
+    const { TEMPLATE_SOURCE } = require("./config");
+    const imageTag = 'workspace:latest';
+    console.log(`Building shared image ${imageTag}...`);
+    await buildImage(imageTag, TEMPLATE_SOURCE, {
       noCache: options.noCache,
     });
   });
@@ -525,7 +525,8 @@ program
   .description("Open an interactive shell inside the workspace via docker exec")
   .argument("<workspace>", "name of the workspace under packages/")
   .option("-c, --command <command>", "run a command instead of launching an interactive shell")
-  .option("--root", "connect as root user instead of workspace user", false)
+  .option("-u, --user <user>", "user to run as (default: workspace)", "workspace")
+  .option("--root", "connect as root user (shorthand for -u root)", false)
   .action(async (workspaceName, options) => {
     const { resolved } = await withConfig(options, workspaceName);
     if (!(await containerRunning(resolved.workspace.containerName))) {
@@ -535,7 +536,7 @@ program
       process.exitCode = 1;
       return;
     }
-    const user = options.root ? "root" : "workspace";
+    const user = options.root ? "root" : options.user;
     const args = [
       "exec",
       "-u",
@@ -547,37 +548,6 @@ program
       args.push("/bin/bash", "-c", options.command);
     } else {
       args.splice(1, 0, "-it");
-      args.push("/bin/bash");
-    }
-    await runCommandStreaming("docker", args);
-  });
-
-program
-  .command("exec")
-  .description("Execute a command via docker exec (bypasses SSH)")
-  .argument("<workspace>", "name of the workspace under packages/")
-  .option("-u, --user <user>", "user to run command as", "workspace")
-  .allowExcessArguments(true)
-  .argument("[cmd...]", "command to run inside the container")
-  .action(async (workspaceName, cmd, options) => {
-    const { resolved } = await withConfig(options, workspaceName);
-    if (!(await containerExists(resolved.workspace.containerName))) {
-      console.error(
-        `Workspace container does not exist. Start it with 'workspace start ${workspaceName}' first.`,
-      );
-      process.exitCode = 1;
-      return;
-    }
-    const args = [
-      "exec",
-      "-it",
-      "-u",
-      options.user || "workspace",
-      resolved.workspace.containerName,
-    ];
-    if (cmd && cmd.length) {
-      args.push(...cmd);
-    } else {
       args.push("/bin/bash");
     }
     await runCommandStreaming("docker", args);
