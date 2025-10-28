@@ -93,14 +93,27 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
   const repoRemote = (config.repo && config.repo.remote) || "";
   const repoBranch = (config.repo && config.repo.branch) || "main";
 
-  // Forwards - convert to simple port numbers
+  // Forwards - convert to simple port numbers, expanding ranges
   const forwards = Array.isArray(config.forwards)
     ? config.forwards
-        .map((forward) => {
-          // Support both simple numbers and objects for backwards compatibility
+        .flatMap((forward) => {
+          // Support simple numbers
           if (typeof forward === "number") {
             return forward;
           }
+          // Support port ranges like "5000-5010"
+          if (typeof forward === "string" && forward.includes("-")) {
+            const [start, end] = forward.split("-").map((s) => Number.parseInt(s.trim(), 10));
+            if (!Number.isNaN(start) && !Number.isNaN(end) && start <= end && start > 0) {
+              const range = [];
+              for (let port = start; port <= end; port++) {
+                range.push(port);
+              }
+              return range;
+            }
+            return null;
+          }
+          // Support objects for backwards compatibility
           if (typeof forward === "object" && forward.internal) {
             return Number.parseInt(forward.internal, 10);
           }

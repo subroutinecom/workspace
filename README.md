@@ -53,8 +53,9 @@ bootstrap:
     - scripts/install-deps.sh           # Optional
 
 forwards:
-  - 3000                                # Ports to forward
+  - 3000                                # Single port
   - 5173
+  - "8000-8010"                         # Port range
 ```
 
 Bootstrap scripts run from the directory containing `.workspace.yml` and execute as the `workspace` user with passwordless sudo.
