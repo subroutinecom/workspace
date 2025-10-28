@@ -537,6 +537,30 @@ program
       return;
     }
     const user = options.root ? "root" : options.user;
+
+    // Detect user's shell from container
+    let userShell = "/bin/bash"; // default fallback
+    try {
+      const { stdout } = await runCommand("docker", [
+        "exec",
+        "-u",
+        user,
+        resolved.workspace.containerName,
+        "getent",
+        "passwd",
+        user,
+      ]);
+      const passwdEntry = stdout.trim();
+      if (passwdEntry) {
+        const shellPath = passwdEntry.split(":")[6];
+        if (shellPath) {
+          userShell = shellPath;
+        }
+      }
+    } catch (err) {
+      // Fall back to bash if detection fails
+    }
+
     const args = [
       "exec",
       "-u",
@@ -545,10 +569,10 @@ program
     ];
     if (options.command) {
       args.splice(1, 0, "-i");
-      args.push("/bin/bash", "-c", options.command);
+      args.push(userShell, "-c", options.command);
     } else {
       args.splice(1, 0, "-it");
-      args.push("/bin/bash");
+      args.push(userShell);
     }
     await runCommandStreaming("docker", args);
   });
