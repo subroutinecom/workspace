@@ -64,6 +64,8 @@ chmod +x ~/.workspaces/userscripts/01-shell.sh
 
 Scripts run alphabetically. Use prefixes for ordering.
 
+**See [examples/userscripts/](examples/userscripts/) for ready-to-use examples**
+
 ## Commands
 
 ```bash
