@@ -21,6 +21,45 @@ const discoverRepoRoot = async (cwd = process.cwd()) => {
   }
 };
 
+/**
+ * Search upward from CWD (or options.path) for the nearest .workspace.yml
+ * Workspace name is completely independent of directory structure
+ */
+const findWorkspaceDir = async (options = {}) => {
+  const startDir = options.path
+    ? path.resolve(options.path)
+    : process.cwd();
+  const repoRoot = await discoverRepoRoot(startDir);
+  const homeDir = os.homedir();
+
+  // Search upward from CWD for .workspace.yml
+  let currentDir = startDir;
+
+  while (true) {
+    const configPath = path.join(currentDir, DEFAULT_CONFIG_FILENAME);
+    if (await fsExtra.pathExists(configPath)) {
+      return currentDir;
+    }
+
+    // Stop if we've reached repo root or home
+    if (currentDir === repoRoot || currentDir === homeDir || currentDir === '/') {
+      break;
+    }
+
+    // Move up one directory
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      break; // Reached filesystem root
+    }
+    currentDir = parentDir;
+  }
+
+  throw new Error(
+    `No ${DEFAULT_CONFIG_FILENAME} found from ${startDir} to ${repoRoot}. ` +
+    `Create ${DEFAULT_CONFIG_FILENAME} in your project directory.`
+  );
+};
+
 const getGitRemote = async (configDir) => {
   try {
     const { stdout } = await runCommand("git", ["config", "--get", "remote.origin.url"], {
@@ -192,6 +231,7 @@ module.exports = {
   DEFAULT_TEMPLATE_DIR,
   TEMPLATE_SOURCE,
   discoverRepoRoot,
+  findWorkspaceDir,
   buildDefaultConfig,
   writeConfig,
   loadConfig,

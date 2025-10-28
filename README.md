@@ -21,16 +21,26 @@ npm install -g .
 ## Quick Start
 
 ```bash
-workspace init myproject
-# Edit packages/myproject/.workspace.yml
-workspace start myproject
-workspace shell myproject
-workspace proxy myproject  # Port forwarding
+# Create .workspace.yml in your project directory
+cd myproject
+cat > .workspace.yml << 'EOF'
+repo:
+  remote: git@github.com:user/repo.git
+  branch: main
+forwards:
+  - 3000
+  - 5173
+EOF
+
+# Start workspace (uses current directory name as workspace name)
+workspace start
+workspace shell
+workspace proxy  # Port forwarding
 ```
 
 ## Configuration
 
-`.workspace.yml` in your workspace directory:
+`.workspace.yml` in your project directory:
 
 ```yaml
 repo:
@@ -48,6 +58,8 @@ forwards:
 ```
 
 Bootstrap scripts execute as `workspace` user with passwordless sudo.
+
+**Workspace name** is derived from the directory containing `.workspace.yml`. You can start workspaces by name from anywhere: `workspace start myproject`
 
 ## User Scripts
 
@@ -69,18 +81,24 @@ Scripts run alphabetically. Use prefixes for ordering.
 ## Commands
 
 ```bash
-workspace init <name>              # Create workspace config
-workspace start <name>             # Start workspace (builds if needed)
-workspace shell <name>             # Interactive shell
-workspace shell <name> -c "cmd"    # Execute command
-workspace proxy <name>             # SSH port forwarding
-workspace stop <name>              # Stop workspace
-workspace destroy <name>           # Remove workspace and volumes
-workspace list                     # List workspaces
-workspace status <name>            # Show status
-workspace logs <name>              # View logs
-workspace build                    # Build shared workspace image
-workspace config <name>            # Show resolved config
+# From within a project directory with .workspace.yml:
+workspace start                    # Start workspace (builds if needed)
+workspace shell                    # Interactive shell
+workspace shell -c "cmd"           # Execute command
+workspace proxy                    # SSH port forwarding
+workspace stop                     # Stop workspace
+workspace destroy                  # Remove workspace and volumes
+workspace status                   # Show status
+workspace logs                     # View logs
+workspace config                   # Show resolved config
+
+# Or specify workspace name from anywhere:
+workspace start myproject          # Start named workspace
+workspace shell myproject          # Shell into named workspace
+
+# Other commands:
+workspace list                     # List all workspaces
+workspace build                    # Build shared Docker image
 workspace doctor                   # Check prerequisites
 ```
 
@@ -138,8 +156,11 @@ src/                      # CLI
 └── utils.js              # Utilities
 
 test/                     # E2E tests
-packages/                 # Workspaces
-└── <name>/
-    ├── .workspace.yml
-    └── scripts/
+examples/                 # Example configurations
+└── userscripts/          # Userscript examples
+
+# Your workspaces (anywhere in your repo)
+<workspace-name>/
+├── .workspace.yml        # Workspace config
+└── scripts/              # Optional bootstrap scripts
 ```

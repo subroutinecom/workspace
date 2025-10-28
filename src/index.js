@@ -6,6 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const {
   discoverRepoRoot,
+  findWorkspaceDir,
   buildDefaultConfig,
   writeConfig,
   loadConfig,
@@ -47,60 +48,19 @@ const parseInteger = (value, dummyPrevious) => {
   return parsed;
 };
 
-const resolveWorkspaceContext = async (workspaceName, options = {}) => {
-  const configDir = options.path
-    ? path.resolve(options.path)
-    : await discoverRepoRoot(process.cwd());
-  const packagesRoot = path.join(configDir, "packages");
-  const workspaceRoot = workspaceName
-    ? path.join(packagesRoot, workspaceName)
-    : configDir;
-  return { configDir, packagesRoot, workspaceRoot };
-};
-
 const withConfig = async (options = {}, workspaceName) => {
-  const { workspaceRoot, packagesRoot, configDir } = await resolveWorkspaceContext(
-    workspaceName,
-    options,
-  );
   const configFilename = options.config || DEFAULT_CONFIG_FILENAME;
 
-  const searchRoots = workspaceName
-    ? [workspaceRoot, packagesRoot]
-    : [workspaceRoot];
+  // Find the workspace directory by searching upward for .workspace.yml
+  const workspaceDir = await findWorkspaceDir(options);
 
-  let lastError;
-  for (const root of searchRoots) {
-    try {
-      const raw = await loadConfig(root, configFilename);
-      const resolved = await resolveConfig(raw, root, {
-        workspaceNameOverride: workspaceName,
-      });
-      return { configDir: root, raw, resolved, packagesRoot };
-    } catch (err) {
-      if (err.code !== "ENOENT") {
-        throw err;
-      }
-      lastError = err;
-    }
-  }
+  // Load and resolve config
+  const raw = await loadConfig(workspaceDir, configFilename);
+  const resolved = await resolveConfig(raw, workspaceDir, {
+    workspaceNameOverride: workspaceName,
+  });
 
-  if (workspaceName) {
-    const attempted = searchRoots
-      .map((root) => path.join(root, configFilename))
-      .join(", ");
-    throw new Error(
-      `Configuration not found for workspace '${workspaceName}'. Checked: ${attempted}. Run 'workspace init ${workspaceName}' or create the config manually.`,
-    );
-  }
-
-  if (lastError) {
-    throw new Error(
-      `Configuration not found. Run 'workspace init' in your repository first (expected ${path.join(workspaceRoot, DEFAULT_CONFIG_FILENAME)}).`,
-    );
-  }
-
-  throw new Error("Unknown configuration lookup error.");
+  return { configDir: workspaceDir, raw, resolved };
 };
 
 const ensureSshKey = async (resolved) => {
@@ -273,39 +233,7 @@ const runInitScript = async (resolved, { quick = true } = {}) => {
   await runCommandStreaming("docker", args);
 };
 
-program
-  .command("init")
-  .description("Create workspace configuration and copy the template")
-  .argument("<workspace>", "name of the workspace (created under packages/)")
-  .option("-f, --force", "overwrite existing configuration", false)
-  .option("-t, --force-template", "overwrite existing template directory", false)
-  .option("--path <path>", "initialise for a specific repository path")
-  .action(async (workspaceName, options) => {
-    const { packagesRoot, workspaceRoot } = await resolveWorkspaceContext(
-      workspaceName,
-      options,
-    );
-
-    await ensureDir(packagesRoot);
-    await ensureDir(workspaceRoot);
-
-    const exists = await configExists(workspaceRoot);
-    if (exists && !options.force) {
-      console.error(
-        `Configuration already exists at ${path.join(workspaceRoot, DEFAULT_CONFIG_FILENAME)}. Use --force to overwrite.`,
-      );
-      process.exitCode = 1;
-      return;
-    }
-
-    const defaultConfig = await buildDefaultConfig(workspaceRoot);
-    const configPath = await writeConfig(workspaceRoot, defaultConfig);
-
-    console.log(`Created configuration: ${configPath}`);
-    console.log(
-      `Update the configuration to match your project, then run 'workspace start ${workspaceName}'.`,
-    );
-  });
+// init command removed - just create .workspace.yml manually in your project directory
 
 program
   .command("build")
@@ -324,7 +252,7 @@ program
   .command("start")
   .alias("up")
   .description("Start the workspace container (builds image if needed)")
-  .argument("<workspace>", "name of the workspace under packages/")
+  .argument("<workspace>", "name of the workspace")
   .option("--rebuild", "force a rebuild of the workspace image before starting", false)
   .option("--no-cache", "rebuild image without cache (implies --rebuild)", false)
   .option("--force-recreate", "remove any existing container before starting", false)
@@ -332,8 +260,9 @@ program
   .option("--path <path>", "use workspace configuration from a specific path")
   .action(async (workspaceName, options) => {
     const { resolved } = await withConfig(options, workspaceName);
-    const cliHint = `workspace shell ${workspaceName}`;
-    const proxyHint = `workspace proxy ${workspaceName}`;
+    const wsName = resolved.workspace.name;
+    const cliHint = `workspace shell${wsName ? ' ' + wsName : ''}`;
+    const proxyHint = `workspace proxy${wsName ? ' ' + wsName : ''}`;
 
     await ensureDir(resolved.workspace.state.root);
     const runtime = await ensureWorkspaceState(resolved);
@@ -403,7 +332,7 @@ program
 program
   .command("stop")
   .description("Stop the workspace container")
-  .argument("<workspace>", "name of the workspace under packages/")
+  .argument("<workspace>", "name of the workspace")
   .action(async (workspaceName, options) => {
     const { resolved } = await withConfig(options, workspaceName);
     if (!(await containerExists(resolved.workspace.containerName))) {
@@ -423,7 +352,7 @@ program
   .alias("rm")
   .alias("delete")
   .description("Stop and remove the workspace container and its volumes")
-  .argument("<workspace>", "name of the workspace under packages/")
+  .argument("<workspace>", "name of the workspace")
   .option("--keep-volumes", "only remove the container", false)
   .action(async (workspaceName, options) => {
     const { resolved } = await withConfig(options, workspaceName);
@@ -448,25 +377,38 @@ program
   .description("List all available workspaces")
   .option("--path <path>", "list workspaces in a specific repository path")
   .action(async (options) => {
-    const { packagesRoot } = await resolveWorkspaceContext(null, options);
+    const startDir = options.path
+      ? path.resolve(options.path)
+      : await discoverRepoRoot(process.cwd());
+
     const workspaceSet = new Set();
 
-    // Add workspaces that have their own config file
-    if (await fs.promises.access(packagesRoot).then(() => true).catch(() => false)) {
-      const entries = await fs.promises.readdir(packagesRoot, { withFileTypes: true });
+    // Search for directories containing .workspace.yml
+    const findWorkspaces = async (dir, maxDepth = 3, currentDepth = 0) => {
+      if (currentDepth > maxDepth) return;
 
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const workspacePath = path.join(packagesRoot, entry.name);
-          const configPath = path.join(workspacePath, DEFAULT_CONFIG_FILENAME);
-          const hasOwnConfig = await fs.promises.access(configPath).then(() => true).catch(() => false);
+      try {
+        const entries = await fs.promises.readdir(dir, { withFileTypes: true });
 
-          if (hasOwnConfig) {
-            workspaceSet.add(entry.name);
+        for (const entry of entries) {
+          if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+            const entryPath = path.join(dir, entry.name);
+            const configPath = path.join(entryPath, DEFAULT_CONFIG_FILENAME);
+
+            if (await fs.promises.access(configPath).then(() => true).catch(() => false)) {
+              workspaceSet.add(entry.name);
+            }
+
+            // Recursively search subdirectories
+            await findWorkspaces(entryPath, maxDepth, currentDepth + 1);
           }
         }
+      } catch (err) {
+        // Ignore permission errors and continue
       }
-    }
+    };
+
+    await findWorkspaces(startDir);
 
     // Add workspaces that have been initialized (exist in state)
     const stateWorkspaces = await listWorkspaceNames();
@@ -489,7 +431,7 @@ program
 program
   .command("status")
   .description("Show workspace container status")
-  .argument("<workspace>", "name of the workspace under packages/")
+  .argument("<workspace>", "name of the workspace")
   .action(async (workspaceName, options) => {
     const { resolved } = await withConfig(options, workspaceName);
     const runtime = await ensureWorkspaceState(resolved);
@@ -523,7 +465,7 @@ program
 program
   .command("shell")
   .description("Open an interactive shell inside the workspace via docker exec")
-  .argument("<workspace>", "name of the workspace under packages/")
+  .argument("<workspace>", "name of the workspace")
   .option("-c, --command <command>", "run a command instead of launching an interactive shell")
   .option("-u, --user <user>", "user to run as (default: workspace)", "workspace")
   .option("--root", "connect as root user (shorthand for -u root)", false)
@@ -580,7 +522,7 @@ program
 program
   .command("proxy")
   .description("Start SSH port forwarding to the workspace")
-  .argument("<workspace>", "name of the workspace under packages/")
+  .argument("<workspace>", "name of the workspace")
   .action(async (workspaceName, options) => {
     const { resolved } = await withConfig(options, workspaceName);
     const runtime = await ensureWorkspaceState(resolved);
@@ -620,7 +562,7 @@ program
 program
   .command("logs")
   .description("Tail workspace container logs")
-  .argument("<workspace>", "name of the workspace under packages/")
+  .argument("<workspace>", "name of the workspace")
   .option("--tail <lines>", "number of lines to show", parseInteger, 200)
   .option("-f, --follow", "follow logs", false)
   .action(async (workspaceName, options) => {
@@ -641,7 +583,7 @@ program
 program
   .command("config")
   .description("Show the resolved workspace configuration")
-  .argument("<workspace>", "name of the workspace under packages/")
+  .argument("<workspace>", "name of the workspace")
   .option("--path <path>", "repository path")
   .action(async (workspaceName, options) => {
     const { resolved } = await withConfig(options, workspaceName);
