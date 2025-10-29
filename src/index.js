@@ -63,6 +63,50 @@ const withConfig = async (options = {}, workspaceName) => {
   return { configDir: workspaceDir, raw, resolved };
 };
 
+/**
+ * Get minimal workspace info without requiring config file.
+ * Tries to load config if available, otherwise falls back to workspace name only.
+ * This allows commands like stop, destroy, logs to work even when .workspace.yml is missing.
+ */
+const getWorkspaceInfo = async (workspaceName, options = {}) => {
+  const containerName = `workspace-${workspaceName}`;
+  const stateDir = path.join(os.homedir(), ".workspaces", "state", workspaceName);
+  const keyPath = path.join(stateDir, "ssh", "id_ed25519");
+
+  // Try to load config if available (but don't throw if missing)
+  let configInfo = null;
+  try {
+    configInfo = await withConfig(options, workspaceName);
+  } catch (err) {
+    // Config not found - that's okay for many commands
+  }
+
+  return {
+    name: workspaceName,
+    containerName,
+    keyPath,
+    stateDir,
+    configInfo, // Will be null if config not found
+  };
+};
+
+/**
+ * Load workspace state from the state file (without requiring config)
+ */
+const loadWorkspaceState = async (workspaceName) => {
+  const STATE_FILE = path.join(os.homedir(), ".workspaces", "state", "state.json");
+  try {
+    const stateData = await fs.promises.readFile(STATE_FILE, "utf8");
+    const state = JSON.parse(stateData);
+    return state.workspaces[workspaceName] || null;
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      return null;
+    }
+    throw err;
+  }
+};
+
 const ensureSshKey = async (resolved) => {
   const { keyPath } = resolved.workspace.state;
   const keyDir = path.dirname(keyPath);
@@ -266,7 +310,41 @@ program
   .option("--no-init", "skip running init-workspace.sh after start", false)
   .option("--path <path>", "use workspace configuration from a specific path")
   .action(async (workspaceName, options) => {
-    const { resolved } = await withConfig(options, workspaceName);
+    const wsInfo = await getWorkspaceInfo(workspaceName, options);
+
+    // Check if container already exists
+    const containerAlreadyExists = await containerExists(wsInfo.containerName);
+
+    // For restarting an existing container, we don't need config
+    if (containerAlreadyExists && !options.forceRecreate && !options.rebuild && !options.noCache) {
+      if (await containerRunning(wsInfo.containerName)) {
+        console.log(`Workspace '${workspaceName}' is already running.`);
+        console.log(`Connect with: workspace shell ${workspaceName}`);
+        return;
+      } else {
+        console.log(`Starting existing container ${wsInfo.containerName}...`);
+        await startContainer(wsInfo.containerName);
+
+        // Try to run init script if config is available
+        if (!options.noInit && wsInfo.configInfo) {
+          await runInitScript(wsInfo.configInfo.resolved, { quick: true });
+        }
+        console.log("Workspace started.");
+        console.log(`Connect with: workspace shell ${workspaceName}`);
+        return;
+      }
+    }
+
+    // For creating a new container or recreating, we NEED the config
+    if (!wsInfo.configInfo) {
+      console.error(`Cannot create workspace '${workspaceName}': .workspace.yml not found.`);
+      console.error("Config file is required for first-time workspace creation.");
+      console.error(`Create a .workspace.yml file in your project directory, or run from a directory containing one.`);
+      process.exitCode = 1;
+      return;
+    }
+
+    const { resolved } = wsInfo.configInfo;
     const wsName = resolved.workspace.name;
     const cliHint = `workspace shell${wsName ? ' ' + wsName : ''}`;
     const proxyHint = `workspace proxy${wsName ? ' ' + wsName : ''}`;
@@ -281,7 +359,7 @@ program
       noCache: options.noCache,
     });
 
-    if (await containerExists(resolved.workspace.containerName)) {
+    if (containerAlreadyExists) {
       if (options.forceRecreate) {
         console.log(`Removing existing container ${resolved.workspace.containerName}...`);
         await removeContainer(resolved.workspace.containerName, { force: true });
@@ -341,16 +419,16 @@ program
   .description("Stop the workspace container")
   .argument("<workspace>", "name of the workspace")
   .action(async (workspaceName, options) => {
-    const { resolved } = await withConfig(options, workspaceName);
-    if (!(await containerExists(resolved.workspace.containerName))) {
+    const wsInfo = await getWorkspaceInfo(workspaceName, options);
+    if (!(await containerExists(wsInfo.containerName))) {
       console.log("Workspace container does not exist.");
       return;
     }
-    if (!(await containerRunning(resolved.workspace.containerName))) {
+    if (!(await containerRunning(wsInfo.containerName))) {
       console.log("Workspace container is already stopped.");
       return;
     }
-    await stopContainer(resolved.workspace.containerName);
+    await stopContainer(wsInfo.containerName);
     console.log("Workspace stopped.");
   });
 
@@ -362,20 +440,20 @@ program
   .argument("<workspace>", "name of the workspace")
   .option("--keep-volumes", "only remove the container", false)
   .action(async (workspaceName, options) => {
-    const { resolved } = await withConfig(options, workspaceName);
-    if (await containerExists(resolved.workspace.containerName)) {
-      console.log(`Removing container ${resolved.workspace.containerName}...`);
-      await removeContainer(resolved.workspace.containerName, { force: true });
+    const wsInfo = await getWorkspaceInfo(workspaceName, options);
+    if (await containerExists(wsInfo.containerName)) {
+      console.log(`Removing container ${wsInfo.containerName}...`);
+      await removeContainer(wsInfo.containerName, { force: true });
     }
     if (!options.keepVolumes) {
-      const volumes = computeVolumes(resolved.workspace.containerName);
+      const volumes = computeVolumes(wsInfo.containerName);
       console.log("Removing volumes...");
       await removeVolumes(Object.values(volumes));
     } else {
       console.log("Retained Docker volumes as requested.");
     }
     console.log("Workspace removed.");
-    await removeWorkspaceState(resolved.workspace.name);
+    await removeWorkspaceState(wsInfo.name);
   });
 
 program
@@ -441,34 +519,44 @@ program
   .argument("<workspace>", "name of the workspace")
   .option("--path <path>", "use workspace configuration from a specific path")
   .action(async (workspaceName, options) => {
-    const { resolved } = await withConfig(options, workspaceName);
-    const runtime = await ensureWorkspaceState(resolved);
-    const info = await inspectContainer(resolved.workspace.containerName);
+    const wsInfo = await getWorkspaceInfo(workspaceName, options);
+    const info = await inspectContainer(wsInfo.containerName);
     if (!info || !info.length) {
       console.log("Workspace container not found.");
       return;
     }
+
+    // Try to get runtime info from config if available, otherwise from state file
+    let runtime = null;
+    if (wsInfo.configInfo) {
+      runtime = await ensureWorkspaceState(wsInfo.configInfo.resolved);
+    } else {
+      runtime = await loadWorkspaceState(wsInfo.name);
+    }
+
     const container = info[0];
     const running = container.State.Running;
-    console.log(`Container : ${resolved.workspace.containerName}`);
+    console.log(`Container : ${wsInfo.containerName}`);
     console.log(`Status    : ${container.State.Status}`);
     console.log(`Image     : ${container.Config.Image}`);
-    console.log(`SSH port  : ${runtime.sshPort}`);
-    if (runtime.forwards.length) {
+    if (runtime && runtime.sshPort) {
+      console.log(`SSH port  : ${runtime.sshPort}`);
+    }
+    if (runtime && runtime.forwards && runtime.forwards.length) {
       runtime.forwards.forEach((port) => {
         console.log(`Forward   : ${port} -> ${port}`);
       });
     }
-    if (resolved.workspace.repo.remote) {
-    console.log(`Remote    : ${resolved.workspace.repo.remote} (${resolved.workspace.repo.branch})`);
-  }
-  console.log("");
-  console.log(
-    running
-      ? `Use 'workspace shell ${workspaceName}' to connect.`
-      : `Start the workspace with 'workspace start ${workspaceName}'.`,
-  );
-});
+    if (wsInfo.configInfo && wsInfo.configInfo.resolved.workspace.repo.remote) {
+      console.log(`Remote    : ${wsInfo.configInfo.resolved.workspace.repo.remote} (${wsInfo.configInfo.resolved.workspace.repo.branch})`);
+    }
+    console.log("");
+    console.log(
+      running
+        ? `Use 'workspace shell ${workspaceName}' to connect.`
+        : `Start the workspace with 'workspace start ${workspaceName}'.`,
+    );
+  });
 
 program
   .command("shell")
@@ -478,8 +566,8 @@ program
   .option("-u, --user <user>", "user to run as (default: workspace)", "workspace")
   .option("--root", "connect as root user (shorthand for -u root)", false)
   .action(async (workspaceName, options) => {
-    const { resolved } = await withConfig(options, workspaceName);
-    if (!(await containerRunning(resolved.workspace.containerName))) {
+    const wsInfo = await getWorkspaceInfo(workspaceName, options);
+    if (!(await containerRunning(wsInfo.containerName))) {
       console.error(
         `Workspace container is not running. Start it with 'workspace start ${workspaceName}'.`,
       );
@@ -495,7 +583,7 @@ program
         "exec",
         "-u",
         user,
-        resolved.workspace.containerName,
+        wsInfo.containerName,
         "getent",
         "passwd",
         user,
@@ -515,7 +603,7 @@ program
       "exec",
       "-u",
       user,
-      resolved.workspace.containerName,
+      wsInfo.containerName,
     ];
     if (options.command) {
       args.splice(1, 0, "-i");
@@ -532,18 +620,37 @@ program
   .description("Start SSH port forwarding to the workspace")
   .argument("<workspace>", "name of the workspace")
   .action(async (workspaceName, options) => {
-    const { resolved } = await withConfig(options, workspaceName);
-    const runtime = await ensureWorkspaceState(resolved);
+    const wsInfo = await getWorkspaceInfo(workspaceName, options);
+
+    // Get runtime info (SSH port and forwards)
+    let runtime = null;
+    if (wsInfo.configInfo) {
+      runtime = await ensureWorkspaceState(wsInfo.configInfo.resolved);
+    } else {
+      runtime = await loadWorkspaceState(wsInfo.name);
+      if (!runtime) {
+        console.error(`Workspace '${workspaceName}' has not been started yet. Start it first with 'workspace start ${workspaceName}'.`);
+        process.exitCode = 1;
+        return;
+      }
+    }
+
     const forwards = runtime.forwards || [];
     if (!forwards.length) {
       console.log("No port forwards configured. Add entries under workspace.forwards in the config file.");
       return;
     }
 
-    const sshKey = await ensureSshKey(resolved);
+    // Check if SSH key exists
+    if (!fs.existsSync(wsInfo.keyPath)) {
+      console.error(`SSH key not found at ${wsInfo.keyPath}. The workspace may not be properly initialized.`);
+      process.exitCode = 1;
+      return;
+    }
+
     const baseArgs = [
       "-i",
-      sshKey.privateKey,
+      wsInfo.keyPath,
       "-o",
       "StrictHostKeyChecking=no",
       "-o",
@@ -574,8 +681,8 @@ program
   .option("--tail <lines>", "number of lines to show", parseInteger, 200)
   .option("-f, --follow", "follow logs", false)
   .action(async (workspaceName, options) => {
-    const { resolved } = await withConfig(options, workspaceName);
-    if (!(await containerExists(resolved.workspace.containerName))) {
+    const wsInfo = await getWorkspaceInfo(workspaceName, options);
+    if (!(await containerExists(wsInfo.containerName))) {
       console.error("Workspace container does not exist.");
       process.exitCode = 1;
       return;
@@ -584,7 +691,7 @@ program
     if (options.follow) {
       args.push("--follow");
     }
-    args.push(resolved.workspace.containerName);
+    args.push(wsInfo.containerName);
     await runCommandStreaming("docker", args);
   });
 
