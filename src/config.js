@@ -167,6 +167,55 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
       ? config.bootstrap.scripts
       : [];
 
+  // Mounts - parse host directory binds
+  const mounts = Array.isArray(config.mounts)
+    ? config.mounts
+        .map((mount) => {
+          if (typeof mount !== "string") return null;
+
+          // Parse format: /host/path:/container/path[:ro|:rw]
+          const parts = mount.split(":");
+          if (parts.length < 2) return null;
+
+          let source, target, mode;
+
+          if (parts.length === 2) {
+            // /host/path:/container/path (default to rw)
+            [source, target] = parts;
+            mode = "rw";
+          } else if (parts.length === 3) {
+            // /host/path:/container/path:ro or :rw
+            [source, target, mode] = parts;
+            if (mode !== "ro" && mode !== "rw") {
+              mode = "rw"; // default to rw if invalid mode
+            }
+          } else if (parts.length === 4) {
+            // Handle Windows paths like C:/path:/container/path:ro
+            source = `${parts[0]}:${parts[1]}`;
+            target = parts[2];
+            mode = parts[3];
+            if (mode !== "ro" && mode !== "rw") {
+              mode = "rw";
+            }
+          } else {
+            return null;
+          }
+
+          // Expand ~ in source path to home directory
+          if (source.startsWith("~")) {
+            source = source.replace("~", os.homedir());
+          }
+
+          // Make source path absolute if relative
+          if (!path.isAbsolute(source)) {
+            source = path.join(configDir, source);
+          }
+
+          return { source, target, mode };
+        })
+        .filter((mount) => mount !== null)
+    : [];
+
   // State paths (stateRoot and stateDir already defined above)
   const sshDir = path.join(stateDir, "ssh");
   const keyPath = path.join(sshDir, "id_ed25519");
@@ -189,6 +238,7 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
         branch: repoBranch,
       },
       forwards,
+      mounts,
       bootstrap: {
         scripts: bootstrapScripts,
       },

@@ -100,14 +100,14 @@ function readFileInWorkspace(name, filePath) {
 }
 
 /**
- * Check if a file exists inside a workspace container
+ * Check if a file or directory exists inside a workspace container
  * @param {string} name - Workspace name
  * @param {string} filePath - Absolute path inside container
  * @returns {boolean}
  */
 function fileExistsInWorkspace(name, filePath) {
   try {
-    execInWorkspace(name, `test -f ${filePath}`);
+    execInWorkspace(name, `test -e ${filePath}`);
     return true;
   } catch {
     return false;
@@ -125,7 +125,15 @@ function startWorkspace(name, options = {}) {
   if (options.noCache) args.push("--no-cache");
   if (options.forceRecreate) args.push("--force-recreate");
 
-  return execWorkspace(args.join(" "), { stdio: "inherit" });
+  const workspaceDir = path.join(PACKAGES_DIR, name);
+  if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {
+    return execSync(
+      `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} ${args.join(" ")}`,
+      { stdio: "inherit", encoding: "utf8", shell: "/bin/bash" }
+    );
+  }
+
+  throw new Error(`Workspace ${name} not found at ${workspaceDir}`);
 }
 
 /**
@@ -134,7 +142,13 @@ function startWorkspace(name, options = {}) {
  */
 function stopWorkspace(name) {
   try {
-    return execWorkspace(`stop ${name}`, { stdio: "inherit" });
+    const workspaceDir = path.join(PACKAGES_DIR, name);
+    if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {
+      return execSync(
+        `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} stop ${name}`,
+        { stdio: "inherit", encoding: "utf8", shell: "/bin/bash" }
+      );
+    }
   } catch (err) {
     // Ignore errors if workspace is already stopped
     if (!err.message.includes("already stopped")) {
@@ -149,22 +163,43 @@ function stopWorkspace(name) {
  */
 function destroyWorkspace(name) {
   try {
-    return execWorkspace(`destroy ${name}`, { stdio: "pipe" });
-  } catch (err) {
-    // Ignore common errors (workspace doesn't exist, volumes already removed, etc.)
-    const errorMsg = err.message || "";
-    const stderrMsg = err.stderr || "";
-    const combinedMsg = errorMsg + stderrMsg;
-
-    if (
-      combinedMsg.includes("does not exist") ||
-      combinedMsg.includes("no such volume") ||
-      combinedMsg.includes("Workspace container does not exist")
-    ) {
-      // These are expected when cleaning up - ignore them
-      return;
+    // First try to use workspace command from workspace directory
+    const workspaceDir = path.join(PACKAGES_DIR, name);
+    if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {
+      return execSync(
+        `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} destroy ${name}`,
+        { stdio: "pipe", encoding: "utf8", shell: "/bin/bash" }
+      );
     }
-    throw err;
+  } catch (err) {
+    // Ignore and fall through to docker cleanup
+  }
+
+  // Fallback: use docker directly to clean up
+  try {
+    const containerName = `workspace-${name}`;
+
+    // Remove container if exists
+    try {
+      execSync(`docker rm -f ${containerName}`, { stdio: "pipe" });
+    } catch (err) {
+      // Container might not exist
+    }
+
+    // Remove volumes if exist
+    const volumes = [`${containerName}-home`, `${containerName}-docker`, `${containerName}-cache`];
+    for (const vol of volumes) {
+      try {
+        execSync(`docker volume rm ${vol}`, { stdio: "pipe" });
+      } catch (err) {
+        // Volume might not exist
+      }
+    }
+
+    return;
+  } catch (err) {
+    // Ignore cleanup errors
+    return;
   }
 }
 

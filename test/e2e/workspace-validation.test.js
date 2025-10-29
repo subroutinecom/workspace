@@ -188,7 +188,9 @@ describe("Workspace Validation", () => {
     console.log("  ✓ Verifying port range expansion...");
 
     const expectedPorts = [3000, 5000, 5001, 5002, 5003, 8080, 9000, 9001, 7000];
-    const statusOutput = execWorkspace(`status ${TEST_WORKSPACE_NAME}`);
+    const path = require("path");
+    const workspacePath = path.join(__dirname, "../../packages", TEST_WORKSPACE_NAME);
+    const statusOutput = execWorkspace(`status ${TEST_WORKSPACE_NAME} --path ${workspacePath}`);
 
     console.log("  ✓ Verifying all expanded ports are present...");
     expectedPorts.forEach((port) => {

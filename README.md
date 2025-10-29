@@ -55,7 +55,18 @@ forwards:
   - 3000
   - 5173
   - "8000-8010"  # Port range
+
+mounts:
+  - /path/on/host:/path/in/container:rw
+  - ~/my-data:/workspace/data:ro
+  - ./local-dir:/workspace/project  # Defaults to :rw
 ```
+
+**Mounts** bind directories from your host directly into the container:
+- Format: `source:target[:mode]`
+- Mode: `:ro` (read-only) or `:rw` (read-write, default)
+- Relative paths are resolved from the config directory
+- `~` expands to your home directory
 
 Bootstrap scripts execute as `workspace` user with passwordless sudo.
 

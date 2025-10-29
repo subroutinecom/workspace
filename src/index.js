@@ -210,6 +210,13 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   runArgs.push("-v", `${volumes.docker}:/var/lib/docker`);
   runArgs.push("-v", `${volumes.cache}:/home/workspace/.cache`);
 
+  // Add user-configured mounts from config
+  if (Array.isArray(resolved.workspace.mounts)) {
+    resolved.workspace.mounts.forEach((mount) => {
+      runArgs.push("-v", `${mount.source}:${mount.target}:${mount.mode}`);
+    });
+  }
+
   if (Array.isArray(options.extraDockerArgs)) {
     options.extraDockerArgs.forEach((arg) => runArgs.push(arg));
   }
@@ -432,6 +439,7 @@ program
   .command("status")
   .description("Show workspace container status")
   .argument("<workspace>", "name of the workspace")
+  .option("--path <path>", "use workspace configuration from a specific path")
   .action(async (workspaceName, options) => {
     const { resolved } = await withConfig(options, workspaceName);
     const runtime = await ensureWorkspaceState(resolved);
