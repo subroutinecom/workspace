@@ -606,6 +606,12 @@ program
       user,
       wsInfo.containerName,
     ];
+
+    // Pass through TERM for proper color support
+    if (process.env.TERM) {
+      args.splice(1, 0, "-e", `TERM=${process.env.TERM}`);
+    }
+
     if (options.command) {
       args.splice(1, 0, "-i");
       args.push(userShell, "-c", options.command);
