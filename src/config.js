@@ -131,6 +131,7 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
   // Repository configuration
   const repoRemote = (config.repo && config.repo.remote) || "";
   const repoBranch = (config.repo && config.repo.branch) || "main";
+  const repoCloneArgs = (config.repo && config.repo.cloneArgs) || [];
 
   // Forwards - convert to simple port numbers, expanding ranges
   const forwards = Array.isArray(config.forwards)
@@ -236,6 +237,7 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
       repo: {
         remote: repoRemote,
         branch: repoBranch,
+        cloneArgs: repoCloneArgs,
       },
       forwards,
       mounts,

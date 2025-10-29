@@ -66,13 +66,59 @@ clone_repository() {
     return
   fi
 
+  # Read clone args from runtime config if available
+  local clone_args=()
+  if [[ -f "${RUNTIME_CONFIG}" ]]; then
+    mapfile -t clone_args < <(
+      python3 - "$RUNTIME_CONFIG" <<'PY'
+import json, sys, pathlib
+cfg_path = pathlib.Path(sys.argv[1])
+try:
+    data = json.loads(cfg_path.read_text())
+    repo_config = data.get("workspace", {}).get("repo", {})
+    clone_args = repo_config.get("cloneArgs", [])
+    if isinstance(clone_args, list):
+        for arg in clone_args:
+            if isinstance(arg, str) and arg.strip():
+                print(arg.strip())
+except Exception:
+    pass
+PY
+    )
+  fi
+
   ensure_known_host "${REPO_URL}"
-  log "Cloning ${REPO_URL}..."
+
+  # Build clone command with custom args
+  local clone_cmd=(git clone)
+  if [[ ${#clone_args[@]} -gt 0 ]]; then
+    log "Cloning ${REPO_URL} with args: ${clone_args[*]}..."
+    clone_cmd+=("${clone_args[@]}")
+  else
+    log "Cloning ${REPO_URL}..."
+  fi
+  clone_cmd+=("${REPO_URL}")
 
   cd "${WORKSPACE_HOME}"
-  if ! git clone "${REPO_URL}" --branch "${REPO_BRANCH}" 2>/dev/null && ! git clone "${REPO_URL}"; then
-    log "Failed to clone repository. Ensure your SSH agent is forwarded or use HTTPS URL."
-    return 1
+  # First try with branch flag if clone args don't already specify a branch
+  local has_branch_arg=false
+  for arg in "${clone_args[@]}"; do
+    if [[ "$arg" == "--branch" || "$arg" == "-b" || "$arg" == --branch=* ]]; then
+      has_branch_arg=true
+      break
+    fi
+  done
+
+  if [[ "$has_branch_arg" == false ]]; then
+    if ! "${clone_cmd[@]}" --branch "${REPO_BRANCH}" 2>/dev/null && ! "${clone_cmd[@]}" 2>/dev/null; then
+      log "Failed to clone repository. Ensure your SSH agent is forwarded or use HTTPS URL."
+      return 1
+    fi
+  else
+    if ! "${clone_cmd[@]}" 2>/dev/null; then
+      log "Failed to clone repository. Ensure your SSH agent is forwarded or use HTTPS URL."
+      return 1
+    fi
   fi
 }
 
@@ -97,13 +143,30 @@ configure_shell_helpers() {
 
 install_lazyvim() {
   local nvim_config_dir="${WORKSPACE_HOME}/.config/nvim"
+  local host_nvim_config="${HOST_HOME}/.config/nvim"
 
-  # Check if user already has a Neovim configuration
+  # Check if user already has a Neovim configuration in the workspace
   if [[ -f "${nvim_config_dir}/init.lua" ]] || [[ -f "${nvim_config_dir}/init.vim" ]]; then
-    log "Existing Neovim configuration detected, skipping LazyVim installation."
+    log "Existing Neovim configuration detected, skipping setup."
     # Ensure proper ownership even for pre-existing configs (e.g., from volume mounts)
     chown -R workspace:workspace "${WORKSPACE_HOME}/.config" 2>/dev/null || true
     return
+  fi
+
+  # Try to copy host's neovim config if it exists
+  if [[ -d "${host_nvim_config}" ]]; then
+    log "Found host Neovim configuration, copying to workspace..."
+    mkdir -p "$(dirname "${nvim_config_dir}")"
+    if cp -r "${host_nvim_config}" "${nvim_config_dir}" 2>/dev/null; then
+      # Ensure proper ownership
+      chown -R workspace:workspace "${WORKSPACE_HOME}/.config" 2>/dev/null || true
+      log "Host Neovim configuration copied successfully."
+      return
+    else
+      log "Warning: Failed to copy host Neovim config. Will install LazyVim instead."
+      # Clean up any partial copy
+      rm -rf "${nvim_config_dir}" 2>/dev/null || true
+    fi
   fi
 
   # If config directory exists but has no init file, proceed with LazyVim install

@@ -139,6 +139,7 @@ const writeRuntimeMetadata = async (resolved, runtime) => {
       repo: {
         remote: resolved.workspace.repo.remote,
         branch: resolved.workspace.repo.branch,
+        cloneArgs: resolved.workspace.repo.cloneArgs,
       },
     },
     ssh: {
