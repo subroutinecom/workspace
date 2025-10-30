@@ -34,6 +34,12 @@ const {
   removeContainer,
   removeVolumes,
   inspectContainer,
+  networkExists,
+  createNetwork,
+  volumeExists,
+  createVolume,
+  connectToNetwork,
+  execInContainer,
 } = require("./docker");
 const { ensureWorkspaceState, removeWorkspaceState, listWorkspaceNames } = require("./state");
 const pkg = require("../package.json");
@@ -200,6 +206,115 @@ const waitForContainer = async (containerName, timeoutMs = 15000) => {
   throw new Error(`Timed out waiting for container ${containerName} to become ready`);
 };
 
+/**
+ * Ensure shared BuildKit infrastructure exists:
+ * - Network: workspace-internal-buildnet
+ * - Volume: workspace-internal-buildkit-cache
+ * - BuildKit daemon: workspace-internal-buildkitd
+ */
+const ensureSharedBuildKit = async () => {
+  const networkName = "workspace-internal-buildnet";
+  const volumeName = "workspace-internal-buildkit-cache";
+  const buildkitdName = "workspace-internal-buildkitd";
+  const buildkitdPort = 1234;
+
+  // Ensure network exists
+  if (!(await networkExists(networkName))) {
+    console.log(`Creating shared BuildKit network: ${networkName}`);
+    await createNetwork(networkName);
+  }
+
+  // Ensure volume exists
+  if (!(await volumeExists(volumeName))) {
+    console.log(`Creating shared BuildKit cache volume: ${volumeName}`);
+    await createVolume(volumeName);
+  }
+
+  // Ensure BuildKit daemon is running
+  const buildkitdExists = await containerExists(buildkitdName);
+  const buildkitdRunning = buildkitdExists && (await containerRunning(buildkitdName));
+
+  if (!buildkitdRunning) {
+    if (buildkitdExists) {
+      console.log(`Starting shared BuildKit daemon: ${buildkitdName}`);
+      await startContainer(buildkitdName);
+    } else {
+      console.log(`Creating shared BuildKit daemon: ${buildkitdName}`);
+      await createContainer([
+        "--detach",
+        "--name",
+        buildkitdName,
+        "--privileged",
+        "--network",
+        networkName,
+        "-v",
+        `${volumeName}:/var/lib/buildkit`,
+        "-p",
+        `127.0.0.1:${buildkitdPort}:${buildkitdPort}`,
+        "moby/buildkit:latest",
+        "--addr",
+        `tcp://0.0.0.0:${buildkitdPort}`,
+      ]);
+
+      // Wait a bit for BuildKit daemon to start
+      await sleep(2000);
+    }
+  }
+
+  return {
+    networkName,
+    volumeName,
+    buildkitdName,
+    buildkitdPort,
+  };
+};
+
+/**
+ * Configure docker buildx in a workspace container to use the shared BuildKit daemon
+ */
+const configureBuildxInContainer = async (containerName, buildkitInfo) => {
+  const builderName = "workspace-internal-builder";
+  const buildkitdEndpoint = `tcp://${buildkitInfo.buildkitdName}:${buildkitInfo.buildkitdPort}`;
+
+  try {
+    // Remove existing builder if it exists (in case of stale config)
+    await execInContainer(containerName, [
+      "docker",
+      "buildx",
+      "rm",
+      builderName,
+    ]).catch(() => {
+      // Ignore errors if builder doesn't exist
+    });
+
+    // Create and use the remote builder
+    await execInContainer(containerName, [
+      "docker",
+      "buildx",
+      "create",
+      "--name",
+      builderName,
+      "--driver",
+      "remote",
+      buildkitdEndpoint,
+      "--use",
+    ]);
+
+    // Bootstrap the builder (this verifies connectivity)
+    await execInContainer(containerName, [
+      "docker",
+      "buildx",
+      "inspect",
+      "--bootstrap",
+    ]);
+
+    console.log(`Configured buildx to use shared BuildKit daemon at ${buildkitdEndpoint}`);
+  } catch (err) {
+    console.warn(`Warning: Failed to configure buildx: ${err.message}`);
+    console.warn("Container will use default Docker build instead of shared BuildKit");
+  }
+};
+
 const computeVolumes = (containerName) => ({
   home: `${containerName}-home`,
   docker: `${containerName}-docker`,
@@ -346,6 +461,11 @@ program
         console.log(`Starting existing container ${wsInfo.containerName}...`);
         await startContainer(wsInfo.containerName);
 
+        // Ensure shared BuildKit infrastructure and connect
+        const buildkitInfo = await ensureSharedBuildKit();
+        await connectToNetwork(wsInfo.containerName, buildkitInfo.networkName);
+        await configureBuildxInContainer(wsInfo.containerName, buildkitInfo);
+
         // Try to run init script if config is available
         if (!options.noInit && wsInfo.configInfo) {
           await runInitScript(wsInfo.configInfo.resolved, { quick: true });
@@ -380,6 +500,9 @@ program
       noCache: options.noCache,
     });
 
+    // Ensure shared BuildKit infrastructure
+    const buildkitInfo = await ensureSharedBuildKit();
+
     if (containerAlreadyExists) {
       if (options.forceRecreate) {
         console.log(`Removing existing container ${resolved.workspace.containerName}...`);
@@ -391,6 +514,13 @@ program
       } else {
         console.log(`Starting existing container ${resolved.workspace.containerName}...`);
         await startContainer(resolved.workspace.containerName);
+
+        // Ensure container is connected to BuildKit network
+        await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
+
+        // Configure buildx in the container
+        await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo);
+
         if (!options.noInit) {
           await runInitScript(resolved, { quick: true });
         }
@@ -403,11 +533,17 @@ program
     console.log(`Starting new workspace '${resolved.workspace.name}'...`);
     await createContainer(runArgs);
 
+    // Connect to BuildKit network
+    await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
+
     try {
       await waitForContainer(resolved.workspace.containerName);
     } catch (err) {
       console.warn(`Container created but not ready yet: ${err.message}`);
     }
+
+    // Configure buildx in the new container
+    await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo);
 
     if (!options.noInit) {
       await runInitScript(resolved, { quick: true });
@@ -806,6 +942,110 @@ program
       console.log("");
       console.log("All prerequisite checks passed.");
     }
+  });
+
+program
+  .command("buildkit")
+  .description("Manage shared BuildKit infrastructure")
+  .option("--status", "show status of shared BuildKit resources", false)
+  .option("--stop", "stop the shared BuildKit daemon", false)
+  .option("--restart", "restart the shared BuildKit daemon", false)
+  .option("--clean", "remove all shared BuildKit resources (stops daemon, removes network and cache)", false)
+  .action(async (options) => {
+    const networkName = "workspace-internal-buildnet";
+    const volumeName = "workspace-internal-buildkit-cache";
+    const buildkitdName = "workspace-internal-buildkitd";
+
+    if (options.clean) {
+      console.log("Cleaning up shared BuildKit resources...");
+
+      // Stop and remove BuildKit daemon
+      if (await containerExists(buildkitdName)) {
+        console.log(`Removing BuildKit daemon: ${buildkitdName}`);
+        await removeContainer(buildkitdName, { force: true });
+      }
+
+      // Remove network
+      if (await networkExists(networkName)) {
+        console.log(`Removing network: ${networkName}`);
+        await runCommand("docker", ["network", "rm", networkName]);
+      }
+
+      // Remove volume
+      if (await volumeExists(volumeName)) {
+        console.log(`Removing cache volume: ${volumeName}`);
+        await removeVolumes([volumeName]);
+      }
+
+      console.log("Shared BuildKit resources cleaned up.");
+      return;
+    }
+
+    if (options.stop) {
+      if (await containerExists(buildkitdName)) {
+        console.log(`Stopping BuildKit daemon: ${buildkitdName}`);
+        await stopContainer(buildkitdName);
+        console.log("BuildKit daemon stopped.");
+      } else {
+        console.log("BuildKit daemon does not exist.");
+      }
+      return;
+    }
+
+    if (options.restart) {
+      if (await containerExists(buildkitdName)) {
+        console.log(`Restarting BuildKit daemon: ${buildkitdName}`);
+        await stopContainer(buildkitdName);
+        await startContainer(buildkitdName);
+        console.log("BuildKit daemon restarted.");
+      } else {
+        console.log("BuildKit daemon does not exist. Starting it...");
+        await ensureSharedBuildKit();
+        console.log("BuildKit daemon started.");
+      }
+      return;
+    }
+
+    // Default: show status
+    console.log("Shared BuildKit Infrastructure Status:\n");
+
+    console.log(`Network: ${networkName}`);
+    const netExists = await networkExists(networkName);
+    console.log(`  Status: ${netExists ? "exists" : "not found"}\n`);
+
+    console.log(`Volume: ${volumeName}`);
+    const volExists = await volumeExists(volumeName);
+    if (volExists) {
+      const { stdout } = await runCommand("docker", ["volume", "inspect", volumeName, "--format", "{{.Mountpoint}}"]);
+      console.log(`  Status: exists`);
+      console.log(`  Path: ${stdout.trim()}`);
+    } else {
+      console.log(`  Status: not found`);
+    }
+    console.log("");
+
+    console.log(`BuildKit Daemon: ${buildkitdName}`);
+    const daemonExists = await containerExists(buildkitdName);
+    if (daemonExists) {
+      const daemonRunning = await containerRunning(buildkitdName);
+      console.log(`  Status: ${daemonRunning ? "running" : "stopped"}`);
+
+      if (daemonRunning) {
+        const inspect = await inspectContainer(buildkitdName);
+        if (inspect && inspect.length > 0) {
+          const networks = Object.keys(inspect[0].NetworkSettings.Networks || {});
+          console.log(`  Networks: ${networks.join(", ")}`);
+        }
+      }
+    } else {
+      console.log(`  Status: not found`);
+    }
+    console.log("");
+
+    console.log("Commands:");
+    console.log("  workspace buildkit --stop       Stop the BuildKit daemon");
+    console.log("  workspace buildkit --restart    Restart the BuildKit daemon");
+    console.log("  workspace buildkit --clean      Remove all BuildKit resources");
   });
 
 program.configureHelp({

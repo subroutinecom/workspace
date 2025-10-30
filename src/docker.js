@@ -85,6 +85,47 @@ const inspectContainer = async (name) => {
   }
 };
 
+const networkExists = async (name) => {
+  try {
+    await dockerCommand(["network", "inspect", name]);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const createNetwork = async (name) => {
+  await dockerCommand(["network", "create", name]);
+};
+
+const volumeExists = async (name) => {
+  try {
+    await dockerCommand(["volume", "inspect", name]);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const createVolume = async (name) => {
+  await dockerCommand(["volume", "create", name]);
+};
+
+const connectToNetwork = async (containerName, networkName) => {
+  try {
+    await dockerCommand(["network", "connect", networkName, containerName]);
+  } catch (err) {
+    // Ignore if already connected
+    if (!err.message.includes("already exists")) {
+      throw err;
+    }
+  }
+};
+
+const execInContainer = async (containerName, command) => {
+  return await dockerCommand(["exec", containerName, ...command]);
+};
+
 module.exports = {
   dockerCommand,
   dockerCommandStreaming,
@@ -98,4 +139,10 @@ module.exports = {
   removeContainer,
   removeVolumes,
   inspectContainer,
+  networkExists,
+  createNetwork,
+  volumeExists,
+  createVolume,
+  connectToNetwork,
+  execInContainer,
 };
