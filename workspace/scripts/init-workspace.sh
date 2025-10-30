@@ -153,19 +153,18 @@ install_lazyvim() {
     return
   fi
 
-  # Try to copy host's neovim config if it exists
-  if [[ -d "${host_nvim_config}" ]]; then
+  # Try to copy host's neovim config if it exists (use sudo since /host/home has restricted permissions)
+  if sudo test -d "${host_nvim_config}" 2>/dev/null; then
     log "Found host Neovim configuration, copying to workspace..."
     mkdir -p "$(dirname "${nvim_config_dir}")"
-    if cp -r "${host_nvim_config}" "${nvim_config_dir}" 2>/dev/null; then
-      # Ensure proper ownership
-      chown -R workspace:workspace "${WORKSPACE_HOME}/.config" 2>/dev/null || true
+
+    if sudo cp -r "${host_nvim_config}" "${nvim_config_dir}" 2>/dev/null; then
+      sudo chown -R workspace:workspace "${nvim_config_dir}"
       log "Host Neovim configuration copied successfully."
       return
     else
       log "Warning: Failed to copy host Neovim config. Will install LazyVim instead."
-      # Clean up any partial copy
-      rm -rf "${nvim_config_dir}" 2>/dev/null || true
+      sudo rm -rf "${nvim_config_dir}" 2>/dev/null || true
     fi
   fi
 
@@ -173,20 +172,24 @@ install_lazyvim() {
   if [[ -d "${nvim_config_dir}" ]]; then
     log "Neovim config directory exists without init file. Installing LazyVim..."
   else
-    log "No Neovim configuration found. Installing LazyVim..."
+    log "Installing LazyVim as fallback..."
   fi
 
   # Clone LazyVim starter
-  if git clone https://github.com/LazyVim/starter "${nvim_config_dir}" 2>/dev/null; then
+  local git_error
+  if git_error=$(git clone https://github.com/LazyVim/starter "${nvim_config_dir}" 2>&1); then
     # Remove .git folder to make it user's own config
     rm -rf "${nvim_config_dir}/.git"
 
     # Ensure proper ownership
     chown -R workspace:workspace "${WORKSPACE_HOME}/.config"
 
-    log "LazyVim installed. Plugins will install on first 'nvim' launch."
+    log "✓ LazyVim installed successfully."
+    log "  Plugins will install on first 'nvim' launch."
   else
-    log "Warning: Failed to install LazyVim. You can install it manually later."
+    log "ERROR: Failed to install LazyVim!"
+    log "  Git error: ${git_error}"
+    log "  You will need to install a Neovim configuration manually."
   fi
 }
 
