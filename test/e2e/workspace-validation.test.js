@@ -1,4 +1,4 @@
-const { describe, it, before, after } = require("node:test");
+const { describe, it, before, after, afterEach } = require("node:test");
 const assert = require("node:assert");
 const {
   createTestWorkspace,
@@ -7,18 +7,18 @@ const {
   startWorkspace,
   cleanupTestWorkspace,
   execWorkspace,
+  generateTestWorkspaceName,
 } = require("../helpers/workspace-utils");
 
-const TEST_WORKSPACE_NAME = "test-workspace-validation";
-
 describe("Workspace Validation", () => {
-  before(async () => {
-    console.log("\n🧹 Cleaning up any existing test workspace...");
-    await cleanupTestWorkspace(TEST_WORKSPACE_NAME);
+  let currentWorkspace = null;
 
-    console.log("📝 Creating test workspace...");
+  before(async () => {
+    currentWorkspace = generateTestWorkspaceName("workspace-validation");
+
+    console.log("\n📝 Creating test workspace...");
     await createTestWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       {
         forwards: [
           3000,           // Single port
@@ -32,19 +32,21 @@ describe("Workspace Validation", () => {
     );
 
     console.log("🚀 Starting workspace...");
-    startWorkspace(TEST_WORKSPACE_NAME);
+    startWorkspace(currentWorkspace);
   });
 
   after(async () => {
     console.log("\n🧹 Cleaning up test workspace...");
-    await cleanupTestWorkspace(TEST_WORKSPACE_NAME);
+    if (currentWorkspace) {
+      await cleanupTestWorkspace(currentWorkspace);
+    }
   });
 
   it("should have Neovim installed with correct version", async () => {
     console.log("\n  ✓ Checking Neovim installation...");
 
     const nvimVersion = execInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "nvim --version"
     );
     assert.ok(nvimVersion.includes("NVIM"), "Neovim should be installed");
@@ -67,13 +69,13 @@ describe("Workspace Validation", () => {
     console.log("  ✓ Checking LazyVim configuration...");
 
     const hasConfig = fileExistsInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "/home/workspace/.config/nvim/init.lua"
     );
     assert.ok(hasConfig, "LazyVim config should exist");
 
     const hasLuaConfig = fileExistsInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "/home/workspace/.config/nvim/lua/config/lazy.lua"
     );
     assert.ok(hasLuaConfig, "LazyVim lua config should exist");
@@ -96,7 +98,7 @@ describe("Workspace Validation", () => {
     ];
 
     for (const tool of tools) {
-      const output = execInWorkspace(TEST_WORKSPACE_NAME, tool.cmd);
+      const output = execInWorkspace(currentWorkspace, tool.cmd);
       if (typeof tool.check === "string") {
         assert.ok(output.includes(tool.check), `${tool.name} should be installed`);
       } else {
@@ -111,7 +113,7 @@ describe("Workspace Validation", () => {
     console.log("  ✓ Checking Docker-in-Docker...");
 
     const dockerVersion = execInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "docker --version"
     );
     assert.ok(
@@ -123,7 +125,7 @@ describe("Workspace Validation", () => {
     let dockerReady = false;
     for (let i = 0; i < 30; i++) {
       try {
-        const dockerInfo = execInWorkspace(TEST_WORKSPACE_NAME, "docker info");
+        const dockerInfo = execInWorkspace(currentWorkspace, "docker info");
         if (dockerInfo.includes("Server Version")) {
           dockerReady = true;
           break;
@@ -140,7 +142,7 @@ describe("Workspace Validation", () => {
   it("should have workspace user with proper permissions", async () => {
     console.log("  ✓ Checking workspace user...");
 
-    const whoami = execInWorkspace(TEST_WORKSPACE_NAME, "whoami");
+    const whoami = execInWorkspace(currentWorkspace, "whoami");
     assert.strictEqual(
       whoami.trim(),
       "workspace",
@@ -148,7 +150,7 @@ describe("Workspace Validation", () => {
     );
 
     const sudoTest = execInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "sudo -n whoami"
     );
     assert.strictEqual(
@@ -157,7 +159,7 @@ describe("Workspace Validation", () => {
       "workspace user should have passwordless sudo"
     );
 
-    const groups = execInWorkspace(TEST_WORKSPACE_NAME, "groups");
+    const groups = execInWorkspace(currentWorkspace, "groups");
     assert.ok(
       groups.includes("docker"),
       "workspace user should be in docker group"
@@ -170,13 +172,13 @@ describe("Workspace Validation", () => {
     console.log("  ✓ Checking home directory structure...");
 
     const hasConfig = fileExistsInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "/home/workspace/.config/nvim/init.lua"
     );
     assert.ok(hasConfig, ".config/nvim should exist");
 
     const hasBashrc = fileExistsInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "/home/workspace/.bashrc"
     );
     assert.ok(hasBashrc, ".bashrc should exist");
@@ -189,8 +191,8 @@ describe("Workspace Validation", () => {
 
     const expectedPorts = [3000, 5000, 5001, 5002, 5003, 8080, 9000, 9001, 7000];
     const path = require("path");
-    const workspacePath = path.join(__dirname, "../../packages", TEST_WORKSPACE_NAME);
-    const statusOutput = execWorkspace(`status ${TEST_WORKSPACE_NAME} --path ${workspacePath}`);
+    const workspacePath = path.join(__dirname, "../../packages", currentWorkspace);
+    const statusOutput = execWorkspace(`status ${currentWorkspace} --path ${workspacePath}`);
 
     console.log("  ✓ Verifying all expanded ports are present...");
     expectedPorts.forEach((port) => {

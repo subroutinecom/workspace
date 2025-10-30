@@ -12,6 +12,17 @@ const PACKAGES_DIR = path.join(PROJECT_ROOT, "packages");
 const WORKSPACE_CLI = path.join(PROJECT_ROOT, "src/index.js");
 
 /**
+ * Generate a unique test workspace name with timestamp
+ * @param {string} baseName - Base name for the workspace
+ * @returns {string} Namespaced workspace name
+ */
+function generateTestWorkspaceName(baseName) {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 6);
+  return `test-${timestamp}-${random}-${baseName}`;
+}
+
+/**
  * Execute workspace CLI command
  */
 function execWorkspace(args, options = {}) {
@@ -261,4 +272,5 @@ module.exports = {
   cleanupTestWorkspace,
   waitFor,
   getWorkspaceStatus,
+  generateTestWorkspaceName,
 };

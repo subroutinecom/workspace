@@ -9,17 +9,16 @@ const {
   fileExistsInWorkspace,
   startWorkspace,
   cleanupTestWorkspace,
+  generateTestWorkspaceName,
 } = require("../helpers/workspace-utils");
-
-const TEST_WORKSPACE_NAME = "test-mounts";
 
 describe("Workspace Mounts", () => {
   let testHostDir;
   let readonlyHostDir;
+  let currentWorkspace = null;
 
   before(async () => {
-    console.log("\n🧹 Cleaning up any existing test workspace...");
-    await cleanupTestWorkspace(TEST_WORKSPACE_NAME);
+    currentWorkspace = generateTestWorkspaceName("mounts");
 
     // Create test directories on host
     testHostDir = path.join(os.tmpdir(), "workspace-test-mount-rw");
@@ -48,7 +47,7 @@ describe("Workspace Mounts", () => {
 
     console.log("📝 Creating test workspace with mounts...");
     await createTestWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       {
         mounts: [
           `${testHostDir}:/workspace/test-rw:rw`,
@@ -59,12 +58,12 @@ describe("Workspace Mounts", () => {
     );
 
     console.log("🚀 Starting workspace...");
-    startWorkspace(TEST_WORKSPACE_NAME);
+    startWorkspace(currentWorkspace);
   });
 
   after(async () => {
     console.log("\n🧹 Cleaning up test workspace...");
-    await cleanupTestWorkspace(TEST_WORKSPACE_NAME);
+    await cleanupTestWorkspace(currentWorkspace);
 
     // Clean up test directories
     if (fs.existsSync(testHostDir)) {
@@ -80,14 +79,14 @@ describe("Workspace Mounts", () => {
 
     // Check if directory is mounted
     const dirExists = fileExistsInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "/workspace/test-rw"
     );
     assert.ok(dirExists, "Mounted directory should exist");
 
     // Check if file from host is readable
     const fileContent = execInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "cat /workspace/test-rw/test-rw.txt"
     );
     assert.strictEqual(
@@ -104,13 +103,13 @@ describe("Workspace Mounts", () => {
 
     // Write a file from container (wrap in sh -c to handle redirection in container)
     execInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "sh -c \"echo 'written from container' > /workspace/test-rw/new-file.txt\""
     );
 
     // Check if file exists in container
     const containerFile = execInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "cat /workspace/test-rw/new-file.txt"
     );
     assert.strictEqual(
@@ -142,14 +141,14 @@ describe("Workspace Mounts", () => {
 
     // Check if directory is mounted
     const dirExists = fileExistsInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "/workspace/test-ro"
     );
     assert.ok(dirExists, "Read-only directory should exist");
 
     // Check if file from host is readable
     const fileContent = execInWorkspace(
-      TEST_WORKSPACE_NAME,
+      currentWorkspace,
       "cat /workspace/test-ro/test-ro.txt"
     );
     assert.strictEqual(
@@ -167,7 +166,7 @@ describe("Workspace Mounts", () => {
     // Try to write to read-only mount (should fail) - wrap in sh -c to handle redirection in container
     try {
       execInWorkspace(
-        TEST_WORKSPACE_NAME,
+        currentWorkspace,
         "sh -c \"echo 'should fail' > /workspace/test-ro/fail.txt\""
       );
       assert.fail("Writing to read-only mount should have failed");
