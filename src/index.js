@@ -438,23 +438,26 @@ program
   .alias("rm")
   .alias("delete")
   .description("Stop and remove the workspace container and its volumes")
-  .argument("<workspace>", "name of the workspace")
+  .argument("<workspaces...>", "name(s) of the workspace(s)")
   .option("--keep-volumes", "only remove the container", false)
-  .action(async (workspaceName, options) => {
-    const wsInfo = await getWorkspaceInfo(workspaceName, options);
-    if (await containerExists(wsInfo.containerName)) {
-      console.log(`Removing container ${wsInfo.containerName}...`);
-      await removeContainer(wsInfo.containerName, { force: true });
+  .action(async (workspaceNames, options) => {
+    for (const workspaceName of workspaceNames) {
+      console.log(`\n=== Removing workspace '${workspaceName}' ===`);
+      const wsInfo = await getWorkspaceInfo(workspaceName, options);
+      if (await containerExists(wsInfo.containerName)) {
+        console.log(`Removing container ${wsInfo.containerName}...`);
+        await removeContainer(wsInfo.containerName, { force: true });
+      }
+      if (!options.keepVolumes) {
+        const volumes = computeVolumes(wsInfo.containerName);
+        console.log("Removing volumes...");
+        await removeVolumes(Object.values(volumes));
+      } else {
+        console.log("Retained Docker volumes as requested.");
+      }
+      console.log("Workspace removed.");
+      await removeWorkspaceState(wsInfo.name);
     }
-    if (!options.keepVolumes) {
-      const volumes = computeVolumes(wsInfo.containerName);
-      console.log("Removing volumes...");
-      await removeVolumes(Object.values(volumes));
-    } else {
-      console.log("Retained Docker volumes as requested.");
-    }
-    console.log("Workspace removed.");
-    await removeWorkspaceState(wsInfo.name);
   });
 
 program
