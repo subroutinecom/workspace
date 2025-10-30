@@ -167,7 +167,7 @@ function destroyWorkspace(name) {
     const workspaceDir = path.join(PACKAGES_DIR, name);
     if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {
       return execSync(
-        `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} destroy ${name}`,
+        `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} destroy ${name} --force`,
         { stdio: "pipe", encoding: "utf8", shell: "/bin/bash" }
       );
     }

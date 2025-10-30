@@ -4,6 +4,7 @@ const { Command, InvalidOptionArgumentError } = require("commander");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const readline = require("readline");
 const {
   discoverRepoRoot,
   findWorkspaceDir,
@@ -46,6 +47,25 @@ const parseInteger = (value, dummyPrevious) => {
     throw new InvalidOptionArgumentError("Not a number.");
   }
   return parsed;
+};
+
+/**
+ * Prompt user for confirmation
+ * @param {string} message - Confirmation message
+ * @returns {Promise<boolean>} true if user confirmed
+ */
+const confirmPrompt = (message) => {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    rl.question(`${message} (y/N): `, (answer) => {
+      rl.close();
+      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
+    });
+  });
 };
 
 const withConfig = async (options = {}, workspaceName) => {
@@ -440,7 +460,34 @@ program
   .description("Stop and remove the workspace container and its volumes")
   .argument("<workspaces...>", "name(s) of the workspace(s)")
   .option("--keep-volumes", "only remove the container", false)
+  .option("-f, --force", "skip confirmation prompt", false)
   .action(async (workspaceNames, options) => {
+    // Show warning and ask for confirmation unless --force is used
+    if (!options.force) {
+      console.log("\n⚠️  WARNING: This will permanently delete the following workspace(s):");
+      for (const name of workspaceNames) {
+        console.log(`  - ${name}`);
+      }
+      if (!options.keepVolumes) {
+        console.log("\nThis will remove:");
+        console.log("  • Container");
+        console.log("  • All volumes (home directory, docker storage, cache)");
+        console.log("  • Workspace state");
+      } else {
+        console.log("\nThis will remove:");
+        console.log("  • Container");
+        console.log("  • Workspace state");
+        console.log("  (Volumes will be kept)");
+      }
+      console.log("\nThis action cannot be undone.");
+
+      const confirmed = await confirmPrompt("\nAre you sure you want to continue?");
+      if (!confirmed) {
+        console.log("Aborted.");
+        return;
+      }
+    }
+
     for (const workspaceName of workspaceNames) {
       console.log(`\n=== Removing workspace '${workspaceName}' ===`);
       const wsInfo = await getWorkspaceInfo(workspaceName, options);
