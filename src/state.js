@@ -2,12 +2,13 @@ const path = require("path");
 const os = require("os");
 const fsExtra = require("fs-extra");
 const lockfile = require("proper-lockfile");
+const { getListeningPorts } = require("./utils");
 
 const STATE_FILE = path.join(os.homedir(), ".workspaces", "state", "state.json");
 const DEFAULT_STATE = {
-  nextSshPort: 4200,
   workspaces: {},
 };
+const SSH_PORT_START = 2300;
 
 const loadState = async () => {
   try {
@@ -26,7 +27,6 @@ const saveState = async (state) => {
 };
 
 const withLock = async (fn) => {
-  // Ensure the state file exists before trying to lock it
   await fsExtra.ensureDir(path.dirname(STATE_FILE));
   if (!(await fsExtra.pathExists(STATE_FILE))) {
     await saveState(DEFAULT_STATE);
@@ -50,22 +50,38 @@ const withLock = async (fn) => {
   }
 };
 
+const findAvailableSshPort = async (state) => {
+  const allocatedPorts = new Set(
+    Object.values(state.workspaces || {}).map(ws => ws.sshPort)
+  );
+
+  const listeningPorts = await getListeningPorts();
+
+  let candidatePort = SSH_PORT_START;
+
+  while (true) {
+    if (!allocatedPorts.has(candidatePort) && !listeningPorts.has(candidatePort)) {
+      return candidatePort;
+    }
+    candidatePort++;
+  }
+};
+
 const ensureWorkspaceState = async (resolved) => {
   return await withLock(async () => {
     const state = await loadState();
     const name = resolved.workspace.name;
 
     if (!state.workspaces[name]) {
+      const sshPort = await findAvailableSshPort(state);
       state.workspaces[name] = {
-        sshPort: state.nextSshPort,
+        sshPort,
         forwards: [],
       };
-      state.nextSshPort += 1;
     }
 
     const workspaceState = state.workspaces[name];
 
-    // Update forwards to match config (simple port numbers)
     workspaceState.forwards = [...resolved.workspace.forwards];
 
     await saveState(state);

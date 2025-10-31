@@ -70,10 +70,29 @@ const writeJson = async (filePath, data) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const getListeningPorts = async () => {
+  try {
+    const { stdout } = await runCommand("ss", ["-tlnH"]);
+    const ports = new Set();
+
+    for (const line of stdout.split("\n")) {
+      const match = line.match(/:(\d+)\s/);
+      if (match) {
+        ports.add(parseInt(match[1], 10));
+      }
+    }
+
+    return ports;
+  } catch (err) {
+    return new Set();
+  }
+};
+
 module.exports = {
   runCommand,
   runCommandStreaming,
   ensureDir,
   writeJson,
   sleep,
+  getListeningPorts,
 };
