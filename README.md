@@ -1,16 +1,6 @@
 # Workspace CLI
 
-Self-contained CLI for Docker-in-Docker development environments.
-
-## Features
-
-- **Docker-in-Docker** - Full Docker CE with compose, buildx
-- **SSH Access** - Auto-generated keys, agent forwarding, port tunnels
-- **Neovim + LazyVim** - v0.11.4 pre-configured
-- **Development Tools** - Node.js, Python, Git, GitHub CLI, ripgrep, fd-find
-- **Persistent Volumes** - Home, Docker data, cache
-- **Bootstrap Scripts** - Custom setup on initialization
-- **Minimal Dependencies** - commander, fs-extra, yaml
+Containerized development environments with Docker-in-Docker, SSH access, and persistent storage.
 
 ## Install
 
@@ -21,26 +11,19 @@ npm install -g .
 ## Quick Start
 
 ```bash
-# Create .workspace.yml in your project directory
+# Initialize in your project
 cd myproject
-cat > .workspace.yml << 'EOF'
-repo:
-  remote: git@github.com:user/repo.git
-  branch: main
-forwards:
-  - 3000
-  - 5173
-EOF
+workspace init
 
-# Start workspace (uses current directory name as workspace name)
+# Edit .workspace.yml, then start
 workspace start
-workspace shell
-workspace proxy  # Port forwarding
+workspace shell        # SSH into container
+workspace proxy        # Port forwarding (separate terminal)
 ```
 
 ## Configuration
 
-`.workspace.yml` in your project directory:
+`.workspace.yml`:
 
 ```yaml
 repo:
@@ -54,124 +37,114 @@ bootstrap:
 forwards:
   - 3000
   - 5173
-  - "8000-8010"  # Port range
+  - "8000-8010"
 
 mounts:
-  - /path/on/host:/path/in/container:rw
-  - ~/my-data:/workspace/data:ro
-  - ./local-dir:/workspace/project  # Defaults to :rw
+  - ./local:/home/workspace/otherLocalData
+  - ~/data:/data:ro
 ```
 
-**Mounts** bind directories from your host directly into the container:
-- Format: `source:target[:mode]`
-- Mode: `:ro` (read-only) or `:rw` (read-write, default)
-- Relative paths are resolved from the config directory
-- `~` expands to your home directory
+**Bootstrap scripts** run as `workspace` user with passwordless sudo. Project scripts run first, then global user scripts from `~/.workspaces/userscripts/`.
 
-Bootstrap scripts execute as `workspace` user with passwordless sudo.
+**Mounts** format: `source:target[:mode]`. Relative paths resolve from config directory. Tilde expands to home. Note that by default workspace will volume mount your host $HOME in read-only mode at `/host/home`
 
-**Workspace name** is derived from the directory containing `.workspace.yml`. You can start workspaces by name from anywhere: `workspace start myproject`
-
-## User Scripts
-
-Add personal bootstrap scripts to `~/.workspaces/userscripts/` - they run in all workspaces.
-
-```bash
-mkdir -p ~/.workspaces/userscripts
-cat > ~/.workspaces/userscripts/01-shell.sh << 'EOF'
-#!/bin/bash
-cp /host/home/.zshrc ~/.zshrc
-EOF
-chmod +x ~/.workspaces/userscripts/01-shell.sh
-```
-
-Scripts run alphabetically. Use prefixes for ordering.
-
-**See [examples/userscripts/](examples/userscripts/) for ready-to-use examples**
+**Forwards** is used when you run `workspace proxy <name>`. It creates SSH tunnel for all ports.
 
 ## Commands
 
 ```bash
-# From within a project directory with .workspace.yml:
-workspace start                    # Start workspace (builds if needed)
-workspace shell                    # Interactive shell
-workspace shell -c "cmd"           # Execute command
-workspace proxy                    # SSH port forwarding
-workspace stop                     # Stop workspace
-workspace destroy                  # Remove workspace and volumes
-workspace status                   # Show status
-workspace logs                     # View logs
-workspace config                   # Show resolved config
+# Lifecycle
+workspace start [name]             # Start workspace (auto-builds image)
+workspace stop [name]              # Stop workspace
+workspace destroy [name...] [-f]   # Remove container + volumes
+workspace status [name]            # Show state (CPU, memory, ports)
 
-# Or specify workspace name from anywhere:
-workspace start myproject          # Start named workspace
-workspace shell myproject          # Shell into named workspace
+# Development
+workspace shell [name] [-c "cmd"]  # SSH into container
+workspace proxy [name]             # Port forwarding tunnel
+workspace logs [name] [-f]         # Container logs
 
-# Other commands:
-workspace list                     # List all workspaces
-workspace build                    # Build shared Docker image
+# Discovery
+workspace list                     # Find all .workspace.yml files
+workspace config [name]            # Show resolved configuration
 workspace doctor                   # Check prerequisites
+
+# Image/BuildKit
+workspace build [--no-cache]       # Build base image
+workspace buildkit [--status]      # Manage shared BuildKit
 ```
+
+Commands run from project directory use that workspace. Or specify name from anywhere.
 
 ## What's Inside
 
-**Base:** Ubuntu 24.04 LTS
+- **OS**: Ubuntu 24.04 LTS
+- **Docker**: CE + Compose + BuildKit
+- **Languages**: Node.js 22, Python 3
+- **Editor**: Neovim v0.11.4 + LazyVim
+- **Tools**: Git, GitHub CLI, ripgrep, fd-find, jq, curl, wget, rsync
+- **User**: `workspace` with passwordless sudo
 
-**Development:** Docker CE, Neovim v0.11.4 + LazyVim, Node.js, Python, Git
+## State Structure
 
-**Tools:** ripgrep, fd-find, GitHub CLI (gh), curl, wget, jq, rsync
+```
+~/.workspaces/
+├── userscripts/           # Global bootstrap scripts (all workspaces)
+└── state/
+    ├── state.json         # SSH port allocation
+    └── <name>/
+        ├── ssh/           # ED25519 key pair
+        └── runtime.json   # Resolved config + SSH port
+```
 
-**User:** `workspace` with passwordless sudo and Docker access
+Each workspace gets:
 
-## State Management
+- Unique SSH port (auto-assigned starting at 4200)
+- ED25519 SSH key pair
+- 3 persistent volumes: `{name}-home`, `{name}-docker`, `{name}-cache`
 
-State lives in `~/.workspaces/`:
-- `userscripts/` - User bootstrap scripts (run in all workspaces)
-- `state/state.json` - Port assignments
-- `state/<name>/ssh/` - SSH keys per workspace
-- `state/<name>/runtime.json` - Runtime config
+## Key Features
 
-SSH ports auto-increment from 4200. Each workspace gets unique SSH port, ED25519 key pair, and persistent volumes.
+**Docker-in-Docker**: Full Docker available inside container. Shared BuildKit daemon across workspaces for efficient layer caching.
+
+**SSH Access**: Real SSH with agent forwarding, not `docker exec`. Works with VS Code Remote, SSH tunneling, etc.
+
+**Persistence**: Named volumes survive container restart. Home directory, Docker storage, and caches all persistent.
+
+**Bootstrap Automation**: Run setup scripts on initialization. Project-specific scripts + global user scripts.
+
+**Port Forwarding**: SSH tunnels for accessing services. Declarative in config, automatic setup.
+
+**Mount Points**:
+
+- `/workspace/source` - Project directory (read-only)
+- `/host/home` - Your home directory (read-only)
+- `/workspace/userscripts` - Global scripts
+- Custom mounts from config
+
+## User Scripts
+
+Add personal scripts to `~/.workspaces/userscripts/` - they run in all workspaces after project scripts.
+
+```bash
+# ~/.workspaces/userscripts/01-shell.sh
+#!/bin/bash
+cp /host/home/.zshrc ~/.zshrc
+cp -r /host/home/.config/nvim ~/.config/
+```
+
+Scripts run alphabetically. See [examples/userscripts/](examples/userscripts/).
 
 ## Testing
 
 ```bash
-npm test         # All tests (Node.js built-in runner)
-npm run test:e2e # E2E only
+npm test
 ```
 
 ## Prerequisites
 
-Docker, SSH client, ssh-keygen, Node.js 18+. Run `workspace doctor` to check.
+- Docker Desktop or Engine
+- SSH client + ssh-keygen
+- Node.js 18+
 
-## Notes
-
-- Runs as **privileged containers** (required for Docker-in-Docker)
-- LazyVim plugins auto-install on first nvim launch
-- SSH agent forwarding works if `SSH_AUTH_SOCK` available
-- Git config copied from host `~/.gitconfig`
-- Repository cloning optional
-
-## Architecture
-
-```
-workspace/                 # Container template
-├── Dockerfile            # Ubuntu 24.04 + Docker + Neovim
-└── scripts/              # Initialization scripts
-
-src/                      # CLI
-├── index.js              # Commands
-├── config.js             # Config loading
-├── docker.js             # Docker ops
-├── state.js              # State management
-└── utils.js              # Utilities
-
-test/                     # E2E tests
-examples/                 # Example configurations
-└── userscripts/          # Userscript examples
-
-# Your workspaces (anywhere in your repo)
-<workspace-name>/
-├── .workspace.yml        # Workspace config
-└── scripts/              # Optional bootstrap scripts
-```
+Run `workspace doctor` to verify.
