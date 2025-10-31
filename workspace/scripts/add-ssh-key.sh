@@ -16,16 +16,11 @@ if [[ -f /host/home/.ssh/authorized_keys ]]; then
   cat /host/home/.ssh/authorized_keys >> "${AUTHORIZED_KEYS}"
 fi
 
-# This runs as root so we can read the files, then chown to workspace user
-if [[ ! -S /ssh-agent ]] && [[ -d /host/.ssh ]]; then
-  for file in /host/.ssh/id_* /host/.ssh/known_hosts /host/.ssh/config; do
-    if [[ -f "$file" ]]; then
-      cp "$file" "${WORKSPACE_HOME}/.ssh/" 2>/dev/null || true
-    fi
-  done
+if [[ -d /host/home/.ssh ]]; then
+  cp -r /host/home/.ssh/* "${WORKSPACE_HOME}/.ssh/" 2>/dev/null || true
 fi
 
-sort -u "${AUTHORIZED_KEYS}" -o "${AUTHORIZED_KEYS}"
+sort -u "${AUTHORIZED_KEYS}" -o "${AUTHORIZED_KEYS}" 2>/dev/null || true
 chown -R workspace:workspace "${WORKSPACE_HOME}/.ssh"
 chmod 700 "${WORKSPACE_HOME}/.ssh"
 chmod 600 "${WORKSPACE_HOME}/.ssh/id_"* 2>/dev/null || true

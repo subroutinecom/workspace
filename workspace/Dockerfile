@@ -53,14 +53,21 @@ RUN apt-get update && apt-get install -y \
   fzf \
   zsh
 
-# Install Neovim v0.11.4 via AppImage (extract since FUSE isn't available in containers)
-RUN curl -fsSL https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.appimage -o /tmp/nvim.appimage \
-  && chmod +x /tmp/nvim.appimage \
-  && cd /tmp \
-  && ./nvim.appimage --appimage-extract >/dev/null 2>&1 \
-  && mv squashfs-root /opt/nvim \
-  && ln -s /opt/nvim/AppRun /usr/local/bin/nvim \
-  && rm /tmp/nvim.appimage \
+# Install build dependencies for Neovim
+RUN apt-get update && apt-get install -y \
+  ninja-build \
+  gettext \
+  cmake \
+  unzip \
+  build-essential
+
+# Build Neovim v0.11.4 from source
+RUN git clone --depth 1 --branch v0.11.4 https://github.com/neovim/neovim.git /tmp/neovim \
+  && cd /tmp/neovim \
+  && make CMAKE_BUILD_TYPE=RelWithDebInfo \
+  && make install \
+  && cd / \
+  && rm -rf /tmp/neovim \
   && nvim --version
 
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -71,7 +78,10 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o 
   && rm -rf /var/lib/apt/lists/* \
   && gh --version
 
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip" \
+# Install AWS CLI v2 for the correct architecture
+RUN ARCH=$(dpkg --print-architecture) \
+  && if [ "$ARCH" = "amd64" ]; then AWS_ARCH="x86_64"; else AWS_ARCH="aarch64"; fi \
+  && curl "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o "/tmp/awscliv2.zip" \
   && unzip /tmp/awscliv2.zip -d /tmp \
   && /tmp/aws/install \
   && rm -rf /tmp/awscliv2.zip /tmp/aws \

@@ -224,10 +224,12 @@ install_dev_tools() {
     fi
   fi
 
-  # Install opencode
+  # Install opencode with correct architecture
   if ! command -v opencode &> /dev/null; then
     log "Installing opencode..."
-    if curl -fsSL "https://github.com/sst/opencode/releases/latest/download/opencode-linux-x64.zip" -o /tmp/opencode.zip \
+    ARCH=$(dpkg --print-architecture)
+    if [ "$ARCH" = "amd64" ]; then OPENCODE_ARCH="x64"; else OPENCODE_ARCH="arm64"; fi
+    if curl -fsSL "https://github.com/sst/opencode/releases/latest/download/opencode-linux-${OPENCODE_ARCH}.zip" -o /tmp/opencode.zip \
       && unzip -q /tmp/opencode.zip -d /tmp/opencode \
       && sudo mv /tmp/opencode/opencode /usr/local/bin/opencode \
       && sudo chmod +x /usr/local/bin/opencode \
@@ -238,7 +240,9 @@ install_dev_tools() {
     fi
   else
     log "opencode already installed, updating..."
-    if curl -fsSL "https://github.com/sst/opencode/releases/latest/download/opencode-linux-x64.zip" -o /tmp/opencode.zip \
+    ARCH=$(dpkg --print-architecture)
+    if [ "$ARCH" = "amd64" ]; then OPENCODE_ARCH="x64"; else OPENCODE_ARCH="arm64"; fi
+    if curl -fsSL "https://github.com/sst/opencode/releases/latest/download/opencode-linux-${OPENCODE_ARCH}.zip" -o /tmp/opencode.zip \
       && unzip -q /tmp/opencode.zip -d /tmp/opencode \
       && sudo mv /tmp/opencode/opencode /usr/local/bin/opencode \
       && sudo chmod +x /usr/local/bin/opencode \

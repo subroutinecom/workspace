@@ -425,11 +425,6 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   if (agentSocket && fs.existsSync(agentSocket)) {
     runArgs.push("-v", `${agentSocket}:/ssh-agent`);
     addEnv("SSH_AUTH_SOCK", "/ssh-agent");
-  } else {
-    const hostSshDir = path.join(os.homedir(), ".ssh");
-    if (fs.existsSync(hostSshDir)) {
-      runArgs.push("-v", `${hostSshDir}:/host/.ssh:ro`);
-    }
   }
 
   runArgs.push("-v", `${volumes.home}:/home/workspace`);
