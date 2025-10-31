@@ -5,7 +5,7 @@ Containerized development environments with Docker-in-Docker, SSH access, and pe
 ## Install
 
 ```bash
-npm install -g .
+npm install -g @subroutinecom/workspace
 ```
 
 ## Quick Start
