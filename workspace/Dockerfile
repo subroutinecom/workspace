@@ -50,6 +50,7 @@ RUN apt-get update && apt-get install -y \
   procps \
   ripgrep \
   fd-find \
+  fzf \
   zsh
 
 # Install Neovim v0.11.4 via AppImage (extract since FUSE isn't available in containers)
@@ -75,12 +76,6 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/aws
   && /tmp/aws/install \
   && rm -rf /tmp/awscliv2.zip /tmp/aws \
   && aws --version
-
-RUN curl -fsSL "https://github.com/opencode-ai/opencode/releases/latest/download/opencode-linux-x86_64.tar.gz" -o /tmp/opencode.tar.gz \
-  && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin \
-  && rm /tmp/opencode.tar.gz \
-  && chmod +x /usr/local/bin/opencode \
-  && opencode --version
 
 # Install docker-init (tini) for proper process management
 RUN curl -fsSL https://github.com/krallin/tini/releases/download/v0.19.0/tini-static-$(dpkg --print-architecture) -o /usr/local/bin/docker-init \
@@ -125,7 +120,7 @@ RUN mkdir -p /home/workspace/.npm-global \
   && npm install -g yarn
 
 USER root
-ENV PATH="/home/workspace/.npm-global/bin:${PATH}"
+ENV PATH="/home/workspace/.npm-global/bin:/root/.local/bin:/home/workspace/.local/bin:${PATH}"
 
 # Enable BuildKit for docker build and docker compose
 ENV DOCKER_BUILDKIT=1

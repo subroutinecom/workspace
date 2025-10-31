@@ -1,6 +1,8 @@
 repo:
   remote: git@github.com:Gricha/workspace-demo.git
   branch: main
+  cloneArgs:
+    - --depth=1
 
 bootstrap:
   scripts:

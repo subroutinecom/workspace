@@ -44,6 +44,11 @@ const {
 const { ensureWorkspaceState, removeWorkspaceState, listWorkspaceNames } = require("./state");
 const pkg = require("../package.json");
 
+(async () => {
+  const updateNotifier = (await import("update-notifier")).default;
+  updateNotifier({ pkg }).notify();
+})();
+
 const program = new Command();
 program.name("workspace").description("Self-contained CLI for Docker-in-Docker workspaces").version(pkg.version);
 
@@ -1108,6 +1113,21 @@ program
     console.log("  workspace buildkit --stop       Stop the BuildKit daemon");
     console.log("  workspace buildkit --restart    Restart the BuildKit daemon");
     console.log("  workspace buildkit --clean      Remove all BuildKit resources");
+  });
+
+program
+  .command("update")
+  .description("Update workspace CLI to the latest version")
+  .action(async () => {
+    console.log("Updating workspace CLI...");
+    const packageName = pkg.name;
+    try {
+      await runCommandStreaming("npm", ["install", "-g", `${packageName}@latest`]);
+      console.log("\nUpdate complete!");
+    } catch (err) {
+      console.error("Update failed:", err.message);
+      process.exitCode = 1;
+    }
   });
 
 program.configureHelp({
