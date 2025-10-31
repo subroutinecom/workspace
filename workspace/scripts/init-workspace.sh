@@ -18,7 +18,6 @@ fi
 
 WORKSPACE_HOME="${WORKSPACE_HOME:-/home/workspace}"
 HOST_HOME="${HOST_HOME:-/host/home}"
-HOST_SOURCE="${WORKSPACE_HOST_SOURCE:-}"
 RUNTIME_CONFIG="${WORKSPACE_RUNTIME_CONFIG:-/workspace/config/runtime.json}"
 REPO_URL="${WORKSPACE_REPO_URL:-${GIT_REPO:-}}"
 REPO_BRANCH="${WORKSPACE_REPO_BRANCH:-${BRANCH:-main}}"
@@ -205,35 +204,6 @@ install_lazyvim() {
   fi
 }
 
-run_post_init_commands() {
-  if [[ ! -f "${RUNTIME_CONFIG}" ]]; then
-    return
-  fi
-  mapfile -t commands < <(
-    python3 - "$RUNTIME_CONFIG" <<'PY'
-import json, sys, pathlib
-cfg_path = pathlib.Path(sys.argv[1])
-try:
-    data = json.loads(cfg_path.read_text())
-except Exception:
-    sys.exit(0)
-for cmd in data.get("postInitCommands") or []:
-    if isinstance(cmd, str) and cmd.strip():
-        print(cmd.strip())
-PY
-  )
-
-  if [[ ${#commands[@]} -eq 0 ]]; then
-    return
-  fi
-
-  log "Running post-init commands..."
-  for cmd in "${commands[@]}"; do
-    log "→ ${cmd}"
-    bash -lc "${cmd}"
-  done
-}
-
 run_bootstrap_scripts() {
   if [[ ! -f "${RUNTIME_CONFIG}" ]]; then
     return
@@ -305,7 +275,6 @@ copy_git_config
 clone_repository
 configure_shell_helpers
 install_lazyvim
-run_post_init_commands
 run_bootstrap_scripts
 
 touch "${WORKSPACE_HOME}/.workspace-initialized"

@@ -164,12 +164,9 @@ const writeRuntimeMetadata = async (resolved, runtime) => {
     ssh: {
       port: runtime.sshPort,
     },
-    forwards: runtime.forwards.map((port) => ({
-      port: port,
-    })),
+    forwards: runtime.forwards,
     bootstrap: {
       scripts: resolved.workspace.bootstrap.scripts,
-      configDirRelative: resolved.workspace.bootstrap.configDirRelative,
     },
   };
   await writeJson(resolved.workspace.state.runtimeConfigPath, runtimeData);

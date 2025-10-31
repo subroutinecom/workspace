@@ -6,7 +6,6 @@ const fsExtra = require("fs-extra");
 const { runCommand } = require("./utils");
 
 const DEFAULT_CONFIG_FILENAME = ".workspace.yml";
-const DEFAULT_TEMPLATE_DIR = ".workspace";
 const PACKAGE_ROOT = path.resolve(__dirname, "..");
 const TEMPLATE_SOURCE = path.join(PACKAGE_ROOT, "workspace");
 
@@ -240,32 +239,8 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
   };
 };
 
-const ensureTemplate = async (destination) => {
-  if (await fsExtra.pathExists(destination)) {
-    return;
-  }
-
-  await fsExtra.copy(TEMPLATE_SOURCE, destination, {
-    overwrite: true,
-    errorOnExist: false,
-  });
-
-  const scriptsDir = path.join(destination, "scripts");
-  if (await fsExtra.pathExists(scriptsDir)) {
-    const files = await fsExtra.readdir(scriptsDir);
-    await Promise.all(
-      files
-        .filter((file) => !file.startsWith("."))
-        .map((file) =>
-          fs.promises.chmod(path.join(scriptsDir, file), 0o755).catch(() => {}),
-        ),
-    );
-  }
-};
-
 module.exports = {
   DEFAULT_CONFIG_FILENAME,
-  DEFAULT_TEMPLATE_DIR,
   TEMPLATE_SOURCE,
   discoverRepoRoot,
   findWorkspaceDir,
@@ -273,6 +248,5 @@ module.exports = {
   writeConfig,
   loadConfig,
   resolveConfig,
-  ensureTemplate,
   configExists,
 };

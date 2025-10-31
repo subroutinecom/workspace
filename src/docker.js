@@ -115,8 +115,7 @@ const connectToNetwork = async (containerName, networkName) => {
   try {
     await dockerCommand(["network", "connect", networkName, containerName]);
   } catch (err) {
-    // Ignore if already connected
-    if (!err.message.includes("already exists")) {
+    if (!err.stderr?.includes("already exists in network")) {
       throw err;
     }
   }

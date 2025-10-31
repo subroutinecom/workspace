@@ -61,18 +61,6 @@ const runCommandStreaming = (command, args = [], options = {}) =>
     });
   });
 
-const expandHome = (inputPath) => {
-  if (!inputPath) {
-    return inputPath;
-  }
-  if (inputPath.startsWith("~")) {
-    return path.join(os.homedir(), inputPath.slice(1));
-  }
-  return inputPath;
-};
-
-const pathExists = async (inputPath) => fsExtra.pathExists(inputPath);
-
 const ensureDir = async (dirPath) => fsExtra.mkdirp(dirPath);
 
 const writeJson = async (filePath, data) => {
@@ -80,32 +68,12 @@ const writeJson = async (filePath, data) => {
   await fsExtra.writeJson(filePath, data, { spaces: 2 });
 };
 
-const readJson = async (filePath, fallback = null) => {
-  try {
-    return await fsExtra.readJson(filePath);
-  } catch (err) {
-    if (err.code === "ENOENT") {
-      return fallback;
-    }
-    throw err;
-  }
-};
-
-const randomPort = (base = 2200) => base + Math.floor(Math.random() * 600);
-
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const formatCommand = (command, args = []) => [command, ...args].join(" ");
 
 module.exports = {
   runCommand,
   runCommandStreaming,
-  expandHome,
-  pathExists,
   ensureDir,
   writeJson,
-  readJson,
-  randomPort,
   sleep,
-  formatCommand,
 };
