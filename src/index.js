@@ -207,6 +207,22 @@ const waitForContainer = async (containerName, timeoutMs = 15000) => {
 };
 
 /**
+ * Wait for Docker daemon inside a DinD container to be ready
+ */
+const waitForDockerd = async (containerName, timeoutMs = 30000) => {
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      await execInContainer(containerName, ["docker", "info"]);
+      return;
+    } catch {
+      await sleep(1000);
+    }
+  }
+  throw new Error(`Timed out waiting for Docker daemon in ${containerName} to become ready`);
+};
+
+/**
  * Ensure shared BuildKit infrastructure exists:
  * - Network: workspace-internal-buildnet
  * - Volume: workspace-internal-buildkit-cache
@@ -270,25 +286,42 @@ const ensureSharedBuildKit = async () => {
 };
 
 /**
- * Configure docker buildx in a workspace container to use the shared BuildKit daemon
+ * Configure docker buildx in a workspace container to use the shared BuildKit daemon.
+ *
+ * This makes the following commands use the shared cache automatically:
+ * - docker buildx build (explicit buildx usage)
+ * - docker build (when DOCKER_BUILDKIT=1, uses default buildx builder)
+ * - docker compose build (when DOCKER_BUILDKIT=1, uses default buildx builder)
+ * - docker compose up --build (same as above)
  */
 const configureBuildxInContainer = async (containerName, buildkitInfo) => {
   const builderName = "workspace-internal-builder";
   const buildkitdEndpoint = `tcp://${buildkitInfo.buildkitdName}:${buildkitInfo.buildkitdPort}`;
 
+  console.log(`Configuring buildx in ${containerName}...`);
+
+  // Configure for the workspace user (not root!)
+  const user = "workspace";
+  console.log(`  Configuring for user: ${user}`);
+
+  // Remove existing builder if it exists (in case of stale config)
   try {
-    // Remove existing builder if it exists (in case of stale config)
-    await execInContainer(containerName, [
+    const rmResult = await execInContainer(containerName, [
       "docker",
       "buildx",
       "rm",
       builderName,
-    ]).catch(() => {
-      // Ignore errors if builder doesn't exist
-    });
+    ], { user });
+    console.log(`  Removed existing builder: ${builderName}`);
+  } catch (err) {
+    // Builder doesn't exist, that's fine
+    console.log(`  No existing builder to remove (this is normal for fresh containers)`);
+  }
 
-    // Create and use the remote builder
-    await execInContainer(containerName, [
+  // Create and use the remote builder
+  console.log(`  Creating remote builder: ${builderName} -> ${buildkitdEndpoint}`);
+  try {
+    const createResult = await execInContainer(containerName, [
       "docker",
       "buildx",
       "create",
@@ -298,21 +331,40 @@ const configureBuildxInContainer = async (containerName, buildkitInfo) => {
       "remote",
       buildkitdEndpoint,
       "--use",
-    ]);
+    ], { user });
+    console.log(`  ✓ Builder created: ${createResult.stdout.trim()}`);
+  } catch (err) {
+    console.error(`  ✗ FAILED to create builder!`);
+    console.error(`    Command: docker buildx create --name ${builderName} --driver remote ${buildkitdEndpoint} --use`);
+    console.error(`    Error: ${err.message}`);
+    if (err.stderr) {
+      console.error(`    Stderr: ${err.stderr}`);
+    }
+    throw new Error(`Failed to create buildx builder in ${containerName}: ${err.message}`);
+  }
 
-    // Bootstrap the builder (this verifies connectivity)
+  // Bootstrap the builder (this verifies connectivity)
+  console.log(`  Bootstrapping builder to verify connectivity...`);
+  try {
     await execInContainer(containerName, [
       "docker",
       "buildx",
       "inspect",
       "--bootstrap",
-    ]);
-
-    console.log(`Configured buildx to use shared BuildKit daemon at ${buildkitdEndpoint}`);
+    ], { user });
+    console.log(`  ✓ Builder is connected and ready`);
   } catch (err) {
-    console.warn(`Warning: Failed to configure buildx: ${err.message}`);
-    console.warn("Container will use default Docker build instead of shared BuildKit");
+    console.error(`  ✗ FAILED to bootstrap builder!`);
+    console.error(`    This means the container cannot reach the BuildKit daemon`);
+    console.error(`    Error: ${err.message}`);
+    if (err.stderr) {
+      console.error(`    Stderr: ${err.stderr}`);
+    }
+    throw new Error(`Failed to bootstrap buildx builder in ${containerName}: ${err.message}`);
   }
+
+  console.log(`✓ Configured buildx to use shared BuildKit daemon at ${buildkitdEndpoint}`);
+  console.log(`  All builds (docker build, docker compose build) will now use shared cache`);
 };
 
 const computeVolumes = (containerName) => ({
@@ -350,6 +402,10 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   addEnv("WORKSPACE_ASSIGNED_SSH_PORT", runtime.sshPort);
   addEnv("WORKSPACE_REPO_URL", resolved.workspace.repo.remote);
   addEnv("WORKSPACE_REPO_BRANCH", resolved.workspace.repo.branch);
+
+  // Enable BuildKit for docker build and docker compose
+  addEnv("DOCKER_BUILDKIT", "1");
+  addEnv("COMPOSE_DOCKER_CLI_BUILD", "1");
 
   runArgs.push(
     "-v",
@@ -463,6 +519,9 @@ program
         console.log(`Starting existing container ${wsInfo.containerName}...`);
         await startContainer(wsInfo.containerName);
 
+        // Wait for Docker daemon to be ready
+        await waitForDockerd(wsInfo.containerName);
+
         // Ensure shared BuildKit infrastructure and connect
         const buildkitInfo = await ensureSharedBuildKit();
         await connectToNetwork(wsInfo.containerName, buildkitInfo.networkName);
@@ -517,6 +576,9 @@ program
         console.log(`Starting existing container ${resolved.workspace.containerName}...`);
         await startContainer(resolved.workspace.containerName);
 
+        // Wait for Docker daemon to be ready
+        await waitForDockerd(resolved.workspace.containerName);
+
         // Ensure container is connected to BuildKit network
         await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
 
@@ -540,6 +602,8 @@ program
 
     try {
       await waitForContainer(resolved.workspace.containerName);
+      // Wait for Docker daemon inside DinD to be ready
+      await waitForDockerd(resolved.workspace.containerName);
     } catch (err) {
       console.warn(`Container created but not ready yet: ${err.message}`);
     }

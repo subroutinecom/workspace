@@ -141,9 +141,10 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
           if (typeof forward === "number") {
             return forward;
           }
-          // Support port ranges like "5000-5010"
-          if (typeof forward === "string" && forward.includes("-")) {
-            const [start, end] = forward.split("-").map((s) => Number.parseInt(s.trim(), 10));
+          // Support port ranges like "5000-5010" or "5000:5010"
+          if (typeof forward === "string" && (forward.includes("-") || forward.includes(":"))) {
+            const separator = forward.includes(":") ? ":" : "-";
+            const [start, end] = forward.split(separator).map((s) => Number.parseInt(s.trim(), 10));
             if (!Number.isNaN(start) && !Number.isNaN(end) && start <= end && start > 0) {
               const range = [];
               for (let port = start; port <= end; port++) {

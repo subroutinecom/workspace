@@ -133,6 +133,10 @@ RUN mkdir -p /home/workspace/.npm-global \
 USER root
 ENV PATH="/home/workspace/.npm-global/bin:${PATH}"
 
+# Enable BuildKit for docker build and docker compose
+ENV DOCKER_BUILDKIT=1
+ENV COMPOSE_DOCKER_CLI_BUILD=1
+
 # Prepare directories
 RUN mkdir -p /home/workspace /workspace/config /workspace/template /workspace/source \
   && chown -R workspace:workspace /home/workspace /workspace

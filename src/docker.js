@@ -122,8 +122,13 @@ const connectToNetwork = async (containerName, networkName) => {
   }
 };
 
-const execInContainer = async (containerName, command) => {
-  return await dockerCommand(["exec", containerName, ...command]);
+const execInContainer = async (containerName, command, { user = null } = {}) => {
+  const args = ["exec"];
+  if (user) {
+    args.push("-u", user);
+  }
+  args.push(containerName, ...command);
+  return await dockerCommand(args);
 };
 
 module.exports = {
