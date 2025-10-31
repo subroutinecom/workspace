@@ -71,6 +71,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o 
   && rm -rf /var/lib/apt/lists/* \
   && gh --version
 
+# Install AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip" \
+  && unzip /tmp/awscliv2.zip -d /tmp \
+  && /tmp/aws/install \
+  && rm -rf /tmp/awscliv2.zip /tmp/aws \
+  && aws --version
+
 # Install opencode CLI
 RUN curl -fsSL "https://github.com/opencode-ai/opencode/releases/latest/download/opencode-linux-x86_64.tar.gz" -o /tmp/opencode.tar.gz \
   && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin \

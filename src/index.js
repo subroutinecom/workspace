@@ -341,6 +341,8 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
     }
   };
 
+  addEnv("USER", "workspace");
+  addEnv("WORKSPACE_NAME", resolved.workspace.name);
   addEnv("SSH_PUBLIC_KEY", sshKeyInfo.publicKey);
   addEnv("WORKSPACE_RUNTIME_CONFIG", "/workspace/config/runtime.json");
   addEnv("WORKSPACE_SOURCE_DIR", "/workspace/source");
