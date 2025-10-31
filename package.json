@@ -10,9 +10,9 @@
     "workspace": "./src/index.js"
   },
   "scripts": {
-    "test": "node --test",
-    "test:e2e": "node --test test/e2e",
-    "test:watch": "node --test --watch"
+    "test": "vitest run test/e2e/bootstrap.test.js",
+    "test:watch": "vitest test/e2e/bootstrap.test.js",
+    "test:old": "node --test"
   },
   "engines": {
     "node": ">=18"
@@ -22,5 +22,8 @@
     "fs-extra": "^11.2.0",
     "proper-lockfile": "^4.1.2",
     "yaml": "^2.3.4"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.6"
   }
 }

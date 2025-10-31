@@ -1,7 +1,11 @@
-const { execSync, spawn } = require("child_process");
-const fs = require("fs-extra");
-const path = require("path");
-const yaml = require("yaml");
+import { execSync, spawn } from "child_process";
+import fs from "fs-extra";
+import path from "path";
+import yaml from "yaml";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * E2E test utilities for workspace CLI
@@ -216,11 +220,20 @@ function destroyWorkspace(name) {
  * @param {string} name - Workspace name
  */
 async function cleanupTestWorkspace(name) {
-  destroyWorkspace(name);
-
   const workspaceDir = path.join(PACKAGES_DIR, name);
-  if (await fs.pathExists(workspaceDir)) {
-    await fs.remove(workspaceDir);
+
+  try {
+    destroyWorkspace(name);
+  } catch (err) {
+    console.error(`Warning: Failed to destroy workspace ${name}:`, err.message);
+  }
+
+  try {
+    if (await fs.pathExists(workspaceDir)) {
+      await fs.remove(workspaceDir);
+    }
+  } catch (err) {
+    console.error(`Warning: Failed to remove workspace directory ${workspaceDir}:`, err.message);
   }
 }
 
@@ -255,7 +268,7 @@ function getWorkspaceStatus(name) {
   }
 }
 
-module.exports = {
+export {
   execWorkspace,
   createTestWorkspace,
   execInWorkspace,

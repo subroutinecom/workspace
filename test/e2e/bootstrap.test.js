@@ -1,35 +1,10 @@
-const { describe, it, beforeEach, afterEach } = require("node:test");
-const assert = require("node:assert");
-const {
-  createTestWorkspace,
-  execInWorkspace,
-  readFileInWorkspace,
-  fileExistsInWorkspace,
-  startWorkspace,
-  stopWorkspace,
-  cleanupTestWorkspace,
-  generateTestWorkspaceName,
-} = require("../helpers/workspace-utils");
+import { describe, expect } from 'vitest';
+import { test } from '../fixtures/workspace.js';
 
-describe("Bootstrap Scripts E2E", () => {
-  let currentWorkspace = null;
-
-  afterEach(async () => {
-    if (currentWorkspace) {
-      try {
-        await cleanupTestWorkspace(currentWorkspace);
-      } catch (err) {
-      }
-      currentWorkspace = null;
-    }
-  });
-
-  it("should execute bootstrap scripts with full functionality", async () => {
-    currentWorkspace = generateTestWorkspaceName("bootstrap-e2e");
-    console.log("\n📝 Creating test workspace with bootstrap scripts...");
-
+describe('Bootstrap Scripts E2E', () => {
+  test('should execute bootstrap scripts with full functionality', async ({ workspace }) => {
     const scripts = {
-      "01-first.sh": `#!/bin/bash
+      '01-first.sh': `#!/bin/bash
 set -e
 echo "first" > /home/workspace/order.txt
 echo "Script 1 executed" >> /home/workspace/bootstrap.log
@@ -37,22 +12,19 @@ echo "HOME=$HOME" >> /home/workspace/env.txt
 echo "USER=$USER" >> /home/workspace/env.txt
 echo "PWD=$(pwd)" >> /home/workspace/env.txt
 `,
-
-      "02-second.sh": `#!/bin/bash
+      '02-second.sh': `#!/bin/bash
 set -e
 echo "second" >> /home/workspace/order.txt
 echo "Script 2 executed" >> /home/workspace/bootstrap.log
 `,
-
-      "03-sudo-test.sh": `#!/bin/bash
+      '03-sudo-test.sh': `#!/bin/bash
 set -e
 echo "third" >> /home/workspace/order.txt
 echo "Testing sudo access..." >> /home/workspace/bootstrap.log
 sudo whoami > /home/workspace/sudo-test.txt
 echo "Script 3 executed" >> /home/workspace/bootstrap.log
 `,
-
-      "04-mount-test.sh": `#!/bin/bash
+      '04-mount-test.sh': `#!/bin/bash
 set -e
 if [ -f /workspace/source/.workspace.yml ]; then
   echo "can-access-source" > /home/workspace/mount-test.txt
@@ -63,193 +35,73 @@ echo "Script 4 executed" >> /home/workspace/bootstrap.log
 `,
     };
 
-    await createTestWorkspace(currentWorkspace, {}, scripts);
+    await workspace.create({}, scripts);
+    await workspace.start({ forceRecreate: true });
 
-    console.log("🚀 Starting workspace (this will take a moment)...");
-    startWorkspace(currentWorkspace, { forceRecreate: true });
+    const orderFile = workspace.readFile('/home/workspace/order.txt');
+    const lines = orderFile.split('\n').filter((l) => l.trim());
+    expect(lines).toEqual(['first', 'second', 'third']);
 
-    console.log("✅ Workspace started, running assertions...\n");
+    const logFile = workspace.readFile('/home/workspace/bootstrap.log');
+    expect(logFile).toContain('Script 1 executed');
+    expect(logFile).toContain('Script 2 executed');
+    expect(logFile).toContain('Script 3 executed');
+    expect(logFile).toContain('Script 4 executed');
 
-    // Test 1: Sequential execution
-    console.log("  ✓ Testing sequential script execution...");
-    const orderFile = readFileInWorkspace(
-      currentWorkspace,
-      "/home/workspace/order.txt"
-    );
-    const lines = orderFile.split("\n").filter((l) => l.trim());
-    assert.deepStrictEqual(
-      lines,
-      ["first", "second", "third"],
-      "Scripts should execute in order"
-    );
+    const envFile = workspace.readFile('/home/workspace/env.txt');
+    expect(envFile).toContain('HOME=/home/workspace');
+    expect(envFile).toContain('PWD=/home/workspace');
+    expect(envFile).toContain('USER=');
 
-    // Test 2: All scripts executed
-    console.log("  ✓ Verifying all scripts executed...");
-    const logFile = readFileInWorkspace(
-      currentWorkspace,
-      "/home/workspace/bootstrap.log"
-    );
-    assert.ok(
-      logFile.includes("Script 1 executed"),
-      "Script 1 should have executed"
-    );
-    assert.ok(
-      logFile.includes("Script 2 executed"),
-      "Script 2 should have executed"
-    );
-    assert.ok(
-      logFile.includes("Script 3 executed"),
-      "Script 3 should have executed"
-    );
-    assert.ok(
-      logFile.includes("Script 4 executed"),
-      "Script 4 should have executed"
-    );
+    const sudoTest = workspace.readFile('/home/workspace/sudo-test.txt');
+    expect(sudoTest.trim()).toBe('root');
 
-    // Test 3: Environment variables
-    console.log("  ✓ Checking environment variables...");
-    const envFile = readFileInWorkspace(
-      currentWorkspace,
-      "/home/workspace/env.txt"
-    );
-    assert.ok(
-      envFile.includes("HOME=/home/workspace"),
-      "HOME should be /home/workspace"
-    );
-    assert.ok(
-      envFile.includes("PWD=/home/workspace"),
-      "Working directory should be /home/workspace"
-    );
-    // Note: USER may be empty in some environments, so we just check it exists
-    assert.ok(envFile.includes("USER="), "USER variable should be present");
+    const mountTest = workspace.readFile('/home/workspace/mount-test.txt');
+    expect(mountTest).toBe('can-access-source');
 
-    // Test 4: Sudo access verification
-    console.log("  ✓ Verifying sudo access...");
-    const sudoTest = readFileInWorkspace(
-      currentWorkspace,
-      "/home/workspace/sudo-test.txt"
-    );
-    assert.strictEqual(
-      sudoTest.trim(),
-      "root",
-      "Sudo should work in bootstrap scripts"
-    );
-    console.log("    → Sudo access works correctly");
+    expect(workspace.fileExists('/home/workspace/.workspace-initialized')).toBe(true);
 
-    // Test 5: Access to mounted source directory
-    console.log("  ✓ Testing access to mounted source...");
-    const mountTest = readFileInWorkspace(
-      currentWorkspace,
-      "/home/workspace/mount-test.txt"
-    );
-    assert.strictEqual(
-      mountTest,
-      "can-access-source",
-      "Scripts should be able to access /workspace/source"
-    );
+    const beforeRestart = workspace.readFile('/home/workspace/order.txt');
 
-    // Test 6: Initialization marker exists
-    console.log("  ✓ Checking initialization marker...");
-    const markerExists = fileExistsInWorkspace(
-      currentWorkspace,
-      "/home/workspace/.workspace-initialized"
-    );
-    assert.ok(
-      markerExists,
-      "Initialization marker should exist after bootstrap"
-    );
+    await workspace.stop();
+    await workspace.start();
 
-    // Test 7: Files persist in volume
-    console.log("  ✓ Testing persistence across restart...");
-    const beforeRestart = readFileInWorkspace(
-      currentWorkspace,
-      "/home/workspace/order.txt"
-    );
+    const afterRestart = workspace.readFile('/home/workspace/order.txt');
+    expect(afterRestart).toBe(beforeRestart);
 
-    console.log("    → Stopping workspace...");
-    stopWorkspace(currentWorkspace);
-
-    console.log("    → Starting workspace again...");
-    startWorkspace(currentWorkspace);
-
-    const afterRestart = readFileInWorkspace(
-      currentWorkspace,
-      "/home/workspace/order.txt"
-    );
-    assert.strictEqual(
-      afterRestart,
-      beforeRestart,
-      "Files should persist across restarts"
-    );
-
-    // Verify bootstrap didn't re-run (file should still have only 3 lines)
-    const linesAfterRestart = afterRestart.split("\n").filter((l) => l.trim());
-    assert.strictEqual(
-      linesAfterRestart.length,
-      3,
-      "Bootstrap scripts should not re-run on restart"
-    );
-
-    console.log("\n✅ All bootstrap script tests passed!");
+    const linesAfterRestart = afterRestart.split('\n').filter((l) => l.trim());
+    expect(linesAfterRestart).toHaveLength(3);
   });
 
-  it("should handle missing script gracefully", async () => {
-    currentWorkspace = generateTestWorkspaceName("missing-script");
-
-    console.log("\n📝 Testing missing script error handling...");
-
-    // Create workspace with reference to non-existent script
-    await createTestWorkspace(
-      currentWorkspace,
+  test('should handle missing script gracefully', async ({ workspace }) => {
+    await workspace.create(
       {
         bootstrap: {
-          scripts: ["scripts/nonexistent.sh"],
+          scripts: ['scripts/nonexistent.sh'],
         },
       },
-      {} // No actual scripts
+      {}
     );
 
-    console.log("🚀 Starting workspace (should fail gracefully)...");
-
-    try {
-      startWorkspace(currentWorkspace);
-      assert.fail("Should have failed with missing script error");
-    } catch (err) {
-      console.log("  ✓ Workspace initialization failed as expected");
-    }
-
-    console.log("✅ Missing script error handling test passed!");
+    await expect(() => workspace.start()).rejects.toThrow();
   });
 
-  it("should handle non-executable script gracefully", async () => {
-    currentWorkspace = generateTestWorkspaceName("nonexec-script");
+  test('should handle non-executable script gracefully', async ({ workspace }) => {
+    const fs = await import('fs-extra');
+    const path = await import('path');
 
-    console.log("\n📝 Testing non-executable script error handling...");
-
-    const workspaceDir = await createTestWorkspace(
-      currentWorkspace,
+    const workspaceDir = await workspace.create(
       {},
       {
-        "test.sh": `#!/bin/bash
+        'test.sh': `#!/bin/bash
 echo "This should not run"
 `,
       }
     );
 
-    const fs = require("fs-extra");
-    const path = require("path");
-    const scriptPath = path.join(workspaceDir, "scripts", "test.sh");
+    const scriptPath = path.join(workspaceDir, 'scripts', 'test.sh');
     await fs.chmod(scriptPath, 0o644);
 
-    console.log("🚀 Starting workspace (should fail gracefully)...");
-
-    try {
-      startWorkspace(currentWorkspace);
-      assert.fail("Should have failed with non-executable script error");
-    } catch (err) {
-      console.log("  ✓ Workspace initialization failed as expected");
-    }
-
-    console.log("✅ Non-executable script error handling test passed!");
+    await expect(() => workspace.start()).rejects.toThrow();
   });
 });
