@@ -139,6 +139,23 @@ configure_shell_helpers() {
       echo "export GIT_SSH_COMMAND=\"ssh -F ~/.ssh/config\""
     } >> "${WORKSPACE_HOME}/.zshrc"
   fi
+
+  # Configure npm global bin path
+  if ! grep -q ".npm-global/bin" "${WORKSPACE_HOME}/.bashrc" 2>/dev/null; then
+    {
+      echo ""
+      echo "# npm global packages"
+      echo "export PATH=\"\$HOME/.npm-global/bin:\$PATH\""
+    } >> "${WORKSPACE_HOME}/.bashrc"
+  fi
+
+  if [[ -f "${WORKSPACE_HOME}/.zshrc" ]] && ! grep -q ".npm-global/bin" "${WORKSPACE_HOME}/.zshrc" 2>/dev/null; then
+    {
+      echo ""
+      echo "# npm global packages"
+      echo "export PATH=\"\$HOME/.npm-global/bin:\$PATH\""
+    } >> "${WORKSPACE_HOME}/.zshrc"
+  fi
 }
 
 install_lazyvim() {

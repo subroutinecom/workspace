@@ -35,8 +35,6 @@ RUN apt-get update && apt-get install -y \
   curl \
   wget \
   tzdata \
-  nodejs \
-  npm \
   python3 \
   python3-pip \
   jq \
@@ -80,9 +78,6 @@ RUN curl -fsSL "https://github.com/opencode-ai/opencode/releases/latest/download
   && chmod +x /usr/local/bin/opencode \
   && opencode --version
 
-# Install yarn globally via npm
-RUN npm install -g yarn
-
 # Install docker-init (tini) for proper process management
 RUN curl -fsSL https://github.com/krallin/tini/releases/download/v0.19.0/tini-static-$(dpkg --print-architecture) -o /usr/local/bin/docker-init \
   && chmod +x /usr/local/bin/docker-init
@@ -109,12 +104,27 @@ RUN mkdir -p /run/sshd \
   && sed -i 's/#\?AllowAgentForwarding.*/AllowAgentForwarding yes/' /etc/ssh/sshd_config \
   && sed -i 's/#\?GatewayPorts.*/GatewayPorts clientspecified/' /etc/ssh/sshd_config
 
+# Install Node.js 22 via NodeSource repository
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+  && apt-get install -y nodejs \
+  && node --version \
+  && npm --version
+
 # Create workspace user with passwordless sudo
 RUN useradd -m -s /bin/bash workspace \
   && echo "workspace:workspace" | chpasswd \
   && usermod -aG sudo workspace \
   && usermod -aG docker workspace \
   && echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Configure npm to use user-writable global directory
+USER workspace
+RUN mkdir -p /home/workspace/.npm-global \
+  && npm config set prefix '/home/workspace/.npm-global' \
+  && npm install -g yarn
+
+USER root
+ENV PATH="/home/workspace/.npm-global/bin:${PATH}"
 
 # Prepare directories
 RUN mkdir -p /home/workspace /workspace/config /workspace/template /workspace/source \
