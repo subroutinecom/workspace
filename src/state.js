@@ -32,7 +32,6 @@ const withLock = async (fn) => {
     await saveState(DEFAULT_STATE);
   }
 
-  // Acquire lock with retry options
   let release;
   try {
     release = await lockfile.lock(STATE_FILE, {

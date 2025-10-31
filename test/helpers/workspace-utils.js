@@ -45,11 +45,9 @@ async function createTestWorkspace(name, config = {}, scripts = {}) {
   const workspaceDir = path.join(PACKAGES_DIR, name);
   const scriptsDir = path.join(workspaceDir, "scripts");
 
-  // Ensure directories exist
   await fs.ensureDir(workspaceDir);
   await fs.ensureDir(scriptsDir);
 
-  // Write workspace config
   const defaultConfig = {
     repo: {
       remote: "",
@@ -65,7 +63,6 @@ async function createTestWorkspace(name, config = {}, scripts = {}) {
   const configPath = path.join(workspaceDir, ".workspace.yml");
   await fs.writeFile(configPath, yaml.stringify(defaultConfig), "utf8");
 
-  // Write bootstrap scripts
   for (const [filename, content] of Object.entries(scripts)) {
     const scriptPath = path.join(scriptsDir, filename);
     await fs.writeFile(scriptPath, content, "utf8");
@@ -219,10 +216,8 @@ function destroyWorkspace(name) {
  * @param {string} name - Workspace name
  */
 async function cleanupTestWorkspace(name) {
-  // Destroy container and volumes
   destroyWorkspace(name);
 
-  // Remove workspace directory
   const workspaceDir = path.join(PACKAGES_DIR, name);
   if (await fs.pathExists(workspaceDir)) {
     await fs.remove(workspaceDir);

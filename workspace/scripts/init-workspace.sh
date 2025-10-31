@@ -89,7 +89,6 @@ PY
 
   ensure_known_host "${REPO_URL}"
 
-  # Build clone command with custom args
   local clone_cmd=(git clone)
   if [[ ${#clone_args[@]} -gt 0 ]]; then
     log "Cloning ${REPO_URL} with args: ${clone_args[*]}..."
@@ -123,7 +122,6 @@ PY
 }
 
 configure_shell_helpers() {
-  # Configure Git SSH command for agent forwarding
   if ! grep -q "GIT_SSH_COMMAND" "${WORKSPACE_HOME}/.bashrc" 2>/dev/null; then
     {
       echo ""
@@ -140,7 +138,6 @@ configure_shell_helpers() {
     } >> "${WORKSPACE_HOME}/.zshrc"
   fi
 
-  # Configure npm global bin path
   if ! grep -q ".npm-global/bin" "${WORKSPACE_HOME}/.bashrc" 2>/dev/null; then
     {
       echo ""
@@ -192,13 +189,11 @@ install_lazyvim() {
     log "Installing LazyVim as fallback..."
   fi
 
-  # Clone LazyVim starter
   local git_error
   if git_error=$(git clone https://github.com/LazyVim/starter "${nvim_config_dir}" 2>&1); then
     # Remove .git folder to make it user's own config
     rm -rf "${nvim_config_dir}/.git"
 
-    # Ensure proper ownership
     chown -R workspace:workspace "${WORKSPACE_HOME}/.config"
 
     log "✓ LazyVim installed successfully."

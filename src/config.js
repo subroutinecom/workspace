@@ -32,7 +32,6 @@ const findWorkspaceDir = async (options = {}) => {
   const repoRoot = await discoverRepoRoot(startDir);
   const homeDir = os.homedir();
 
-  // Search upward from CWD for .workspace.yml
   let currentDir = startDir;
 
   while (true) {
@@ -41,15 +40,13 @@ const findWorkspaceDir = async (options = {}) => {
       return currentDir;
     }
 
-    // Stop if we've reached repo root or home
     if (currentDir === repoRoot || currentDir === homeDir || currentDir === '/') {
       break;
     }
 
-    // Move up one directory
     const parentDir = path.dirname(currentDir);
     if (parentDir === currentDir) {
-      break; // Reached filesystem root
+      break;
     }
     currentDir = parentDir;
   }
@@ -119,25 +116,20 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
     throw new Error("Invalid configuration");
   }
 
-  // Derive workspace name from override or directory name
   const name = workspaceNameOverride || path.basename(configDir);
   const imageTag = 'workspace:latest';
   const containerName = `workspace-${name}`;
 
-  // State directory
   const stateRoot = path.join(os.homedir(), ".workspaces", "state");
   const stateDir = path.join(stateRoot, name);
 
-  // Repository configuration
   const repoRemote = (config.repo && config.repo.remote) || "";
   const repoBranch = (config.repo && config.repo.branch) || "main";
   const repoCloneArgs = (config.repo && config.repo.cloneArgs) || [];
 
-  // Forwards - convert to simple port numbers, expanding ranges
   const forwards = Array.isArray(config.forwards)
     ? config.forwards
         .flatMap((forward) => {
-          // Support simple numbers
           if (typeof forward === "number") {
             return forward;
           }
@@ -163,33 +155,29 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
         .filter((port) => !Number.isNaN(port) && port > 0)
     : [];
 
-  // Bootstrap scripts
   const bootstrapScripts =
     config.bootstrap && Array.isArray(config.bootstrap.scripts)
       ? config.bootstrap.scripts
       : [];
 
-  // Mounts - parse host directory binds
+  // Parse mount format: /host/path:/container/path[:ro|:rw]
   const mounts = Array.isArray(config.mounts)
     ? config.mounts
         .map((mount) => {
           if (typeof mount !== "string") return null;
 
-          // Parse format: /host/path:/container/path[:ro|:rw]
           const parts = mount.split(":");
           if (parts.length < 2) return null;
 
           let source, target, mode;
 
           if (parts.length === 2) {
-            // /host/path:/container/path (default to rw)
             [source, target] = parts;
             mode = "rw";
           } else if (parts.length === 3) {
-            // /host/path:/container/path:ro or :rw
             [source, target, mode] = parts;
             if (mode !== "ro" && mode !== "rw") {
-              mode = "rw"; // default to rw if invalid mode
+              mode = "rw";
             }
           } else if (parts.length === 4) {
             // Handle Windows paths like C:/path:/container/path:ro
@@ -203,12 +191,10 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
             return null;
           }
 
-          // Expand ~ in source path to home directory
           if (source.startsWith("~")) {
             source = source.replace("~", os.homedir());
           }
 
-          // Make source path absolute if relative
           if (!path.isAbsolute(source)) {
             source = path.join(configDir, source);
           }
@@ -218,7 +204,6 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
         .filter((mount) => mount !== null)
     : [];
 
-  // State paths (stateRoot and stateDir already defined above)
   const sshDir = path.join(stateDir, "ssh");
   const keyPath = path.join(sshDir, "id_ed25519");
   const runtimeConfigPath = path.join(stateDir, "runtime.json");
@@ -256,7 +241,6 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
 };
 
 const ensureTemplate = async (destination) => {
-  // Copy template to destination if it doesn't exist
   if (await fsExtra.pathExists(destination)) {
     return;
   }

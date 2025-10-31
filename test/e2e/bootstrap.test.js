@@ -15,12 +15,10 @@ describe("Bootstrap Scripts E2E", () => {
   let currentWorkspace = null;
 
   afterEach(async () => {
-    // Clean up workspace created in this test
     if (currentWorkspace) {
       try {
         await cleanupTestWorkspace(currentWorkspace);
       } catch (err) {
-        // Ignore cleanup errors
       }
       currentWorkspace = null;
     }
@@ -30,9 +28,7 @@ describe("Bootstrap Scripts E2E", () => {
     currentWorkspace = generateTestWorkspaceName("bootstrap-e2e");
     console.log("\n📝 Creating test workspace with bootstrap scripts...");
 
-    // Define bootstrap scripts to test various scenarios
     const scripts = {
-      // Script 1: Test sequential execution and environment
       "01-first.sh": `#!/bin/bash
 set -e
 echo "first" > /home/workspace/order.txt
@@ -42,24 +38,20 @@ echo "USER=$USER" >> /home/workspace/env.txt
 echo "PWD=$(pwd)" >> /home/workspace/env.txt
 `,
 
-      // Script 2: Test sequential execution continues
       "02-second.sh": `#!/bin/bash
 set -e
 echo "second" >> /home/workspace/order.txt
 echo "Script 2 executed" >> /home/workspace/bootstrap.log
 `,
 
-      // Script 3: Test file operations and sudo access
       "03-sudo-test.sh": `#!/bin/bash
 set -e
 echo "third" >> /home/workspace/order.txt
 echo "Testing sudo access..." >> /home/workspace/bootstrap.log
-# Test sudo without actually installing packages (too slow in DinD)
 sudo whoami > /home/workspace/sudo-test.txt
 echo "Script 3 executed" >> /home/workspace/bootstrap.log
 `,
 
-      // Script 4: Test access to mounted source directory
       "04-mount-test.sh": `#!/bin/bash
 set -e
 if [ -f /workspace/source/.workspace.yml ]; then
@@ -71,7 +63,6 @@ echo "Script 4 executed" >> /home/workspace/bootstrap.log
 `,
     };
 
-    // Create workspace with all scripts
     await createTestWorkspace(currentWorkspace, {}, scripts);
 
     console.log("🚀 Starting workspace (this will take a moment)...");
@@ -224,7 +215,6 @@ echo "Script 4 executed" >> /home/workspace/bootstrap.log
       startWorkspace(currentWorkspace);
       assert.fail("Should have failed with missing script error");
     } catch (err) {
-      // Expected to fail - this is good
       console.log("  ✓ Workspace initialization failed as expected");
     }
 
@@ -236,7 +226,6 @@ echo "Script 4 executed" >> /home/workspace/bootstrap.log
 
     console.log("\n📝 Testing non-executable script error handling...");
 
-    // Create script without execute permissions
     const workspaceDir = await createTestWorkspace(
       currentWorkspace,
       {},
@@ -247,11 +236,10 @@ echo "This should not run"
       }
     );
 
-    // Remove execute permission
     const fs = require("fs-extra");
     const path = require("path");
     const scriptPath = path.join(workspaceDir, "scripts", "test.sh");
-    await fs.chmod(scriptPath, 0o644); // Read/write but not executable
+    await fs.chmod(scriptPath, 0o644);
 
     console.log("🚀 Starting workspace (should fail gracefully)...");
 
@@ -259,7 +247,6 @@ echo "This should not run"
       startWorkspace(currentWorkspace);
       assert.fail("Should have failed with non-executable script error");
     } catch (err) {
-      // Expected to fail - this is good
       console.log("  ✓ Workspace initialization failed as expected");
     }
 

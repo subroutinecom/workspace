@@ -62,7 +62,6 @@ RUN curl -fsSL https://github.com/neovim/neovim/releases/latest/download/nvim-li
   && rm /tmp/nvim.appimage \
   && nvim --version
 
-# Install GitHub CLI (gh)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
   && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
   && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
@@ -71,14 +70,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o 
   && rm -rf /var/lib/apt/lists/* \
   && gh --version
 
-# Install AWS CLI v2
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip" \
   && unzip /tmp/awscliv2.zip -d /tmp \
   && /tmp/aws/install \
   && rm -rf /tmp/awscliv2.zip /tmp/aws \
   && aws --version
 
-# Install opencode CLI
 RUN curl -fsSL "https://github.com/opencode-ai/opencode/releases/latest/download/opencode-linux-x86_64.tar.gz" -o /tmp/opencode.tar.gz \
   && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin \
   && rm /tmp/opencode.tar.gz \
@@ -98,11 +95,9 @@ RUN mkdir -p /usr/local/sbin/.iptables-legacy \
   && ln -s /usr/sbin/iptables-legacy /usr/local/sbin/.iptables-legacy/iptables \
   && ln -s /usr/sbin/ip6tables-legacy /usr/local/sbin/.iptables-legacy/ip6tables
 
-# Set timezone to UTC
 RUN ln -sf /usr/share/zoneinfo/UTC /etc/localtime \
   && echo "UTC" > /etc/timezone
 
-# Configure SSH daemon
 RUN mkdir -p /run/sshd \
   && ssh-keygen -A \
   && sed -i 's/#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config \
@@ -111,7 +106,6 @@ RUN mkdir -p /run/sshd \
   && sed -i 's/#\?AllowAgentForwarding.*/AllowAgentForwarding yes/' /etc/ssh/sshd_config \
   && sed -i 's/#\?GatewayPorts.*/GatewayPorts clientspecified/' /etc/ssh/sshd_config
 
-# Install Node.js 22 via NodeSource repository
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
   && apt-get install -y nodejs \
   && node --version \
@@ -137,11 +131,9 @@ ENV PATH="/home/workspace/.npm-global/bin:${PATH}"
 ENV DOCKER_BUILDKIT=1
 ENV COMPOSE_DOCKER_CLI_BUILD=1
 
-# Prepare directories
 RUN mkdir -p /home/workspace /workspace/config /workspace/template /workspace/source \
   && chown -R workspace:workspace /home/workspace /workspace
 
-# Copy scripts into image
 COPY scripts /opt/workspace/scripts
 RUN chmod +x /opt/workspace/scripts/*.sh \
   && install -m 0755 /opt/workspace/scripts/dockerd-entrypoint.sh /usr/local/bin/dockerd-entrypoint.sh \

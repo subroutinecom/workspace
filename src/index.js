@@ -77,10 +77,8 @@ const confirmPrompt = (message) => {
 const withConfig = async (options = {}, workspaceName) => {
   const configFilename = options.config || DEFAULT_CONFIG_FILENAME;
 
-  // Find the workspace directory by searching upward for .workspace.yml
   const workspaceDir = await findWorkspaceDir(options);
 
-  // Load and resolve config
   const raw = await loadConfig(workspaceDir, configFilename);
   const resolved = await resolveConfig(raw, workspaceDir, {
     workspaceNameOverride: workspaceName,
@@ -91,15 +89,13 @@ const withConfig = async (options = {}, workspaceName) => {
 
 /**
  * Get minimal workspace info without requiring config file.
- * Tries to load config if available, otherwise falls back to workspace name only.
- * This allows commands like stop, destroy, logs to work even when .workspace.yml is missing.
+ * Allows commands like stop, destroy, logs to work even when .workspace.yml is missing.
  */
 const getWorkspaceInfo = async (workspaceName, options = {}) => {
   const containerName = `workspace-${workspaceName}`;
   const stateDir = path.join(os.homedir(), ".workspaces", "state", workspaceName);
   const keyPath = path.join(stateDir, "ssh", "id_ed25519");
 
-  // Try to load config if available (but don't throw if missing)
   let configInfo = null;
   try {
     configInfo = await withConfig(options, workspaceName);
@@ -112,13 +108,10 @@ const getWorkspaceInfo = async (workspaceName, options = {}) => {
     containerName,
     keyPath,
     stateDir,
-    configInfo, // Will be null if config not found
+    configInfo,
   };
 };
 
-/**
- * Load workspace state from the state file (without requiring config)
- */
 const loadWorkspaceState = async (workspaceName) => {
   const STATE_FILE = path.join(os.homedir(), ".workspaces", "state", "state.json");
   try {
@@ -272,7 +265,6 @@ const ensureSharedBuildKit = async () => {
         `tcp://0.0.0.0:${buildkitdPort}`,
       ]);
 
-      // Wait a bit for BuildKit daemon to start
       await sleep(2000);
     }
   }
@@ -300,11 +292,9 @@ const configureBuildxInContainer = async (containerName, buildkitInfo) => {
 
   console.log(`Configuring buildx in ${containerName}...`);
 
-  // Configure for the workspace user (not root!)
   const user = "workspace";
   console.log(`  Configuring for user: ${user}`);
 
-  // Remove existing builder if it exists (in case of stale config)
   try {
     const rmResult = await execInContainer(containerName, [
       "docker",
@@ -314,11 +304,9 @@ const configureBuildxInContainer = async (containerName, buildkitInfo) => {
     ], { user });
     console.log(`  Removed existing builder: ${builderName}`);
   } catch (err) {
-    // Builder doesn't exist, that's fine
-    console.log(`  No existing builder to remove (this is normal for fresh containers)`);
+    console.log(`  No existing builder to remove`);
   }
 
-  // Create and use the remote builder
   console.log(`  Creating remote builder: ${builderName} -> ${buildkitdEndpoint}`);
   try {
     const createResult = await execInContainer(containerName, [
@@ -343,7 +331,6 @@ const configureBuildxInContainer = async (containerName, buildkitInfo) => {
     throw new Error(`Failed to create buildx builder in ${containerName}: ${err.message}`);
   }
 
-  // Bootstrap the builder (this verifies connectivity)
   console.log(`  Bootstrapping builder to verify connectivity...`);
   try {
     await execInContainer(containerName, [
@@ -437,7 +424,6 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
     runArgs.push("-v", `${agentSocket}:/ssh-agent`);
     addEnv("SSH_AUTH_SOCK", "/ssh-agent");
   } else {
-    // No SSH agent - mount host SSH directory for key-based auth
     const hostSshDir = path.join(os.homedir(), ".ssh");
     if (fs.existsSync(hostSshDir)) {
       runArgs.push("-v", `${hostSshDir}:/host/.ssh:ro`);
@@ -448,7 +434,6 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   runArgs.push("-v", `${volumes.docker}:/var/lib/docker`);
   runArgs.push("-v", `${volumes.cache}:/home/workspace/.cache`);
 
-  // Add user-configured mounts from config
   if (Array.isArray(resolved.workspace.mounts)) {
     resolved.workspace.mounts.forEach((mount) => {
       runArgs.push("-v", `${mount.source}:${mount.target}:${mount.mode}`);
@@ -489,7 +474,6 @@ program
     const name = workspaceName || dirName;
     const configPath = path.join(targetDir, DEFAULT_CONFIG_FILENAME);
 
-    // Check if config already exists
     if (await configExists(targetDir)) {
       if (!options.force) {
         console.error(`Config file already exists: ${configPath}`);
@@ -500,10 +484,8 @@ program
       console.log(`Overwriting existing config: ${configPath}`);
     }
 
-    // Build default config with git info
     const config = await buildDefaultConfig(targetDir);
 
-    // Write config to file
     const writtenPath = await writeConfig(targetDir, config);
     console.log(`Created workspace config: ${writtenPath}`);
     console.log("");
@@ -548,10 +530,8 @@ program
   .action(async (workspaceName, options) => {
     const wsInfo = await getWorkspaceInfo(workspaceName, options);
 
-    // Check if container already exists
     const containerAlreadyExists = await containerExists(wsInfo.containerName);
 
-    // For restarting an existing container, we don't need config
     if (containerAlreadyExists && !options.forceRecreate && !options.rebuild && !options.noCache) {
       if (await containerRunning(wsInfo.containerName)) {
         console.log(`Workspace '${workspaceName}' is already running.`);
@@ -561,15 +541,12 @@ program
         console.log(`Starting existing container ${wsInfo.containerName}...`);
         await startContainer(wsInfo.containerName);
 
-        // Wait for Docker daemon to be ready
         await waitForDockerd(wsInfo.containerName);
 
-        // Ensure shared BuildKit infrastructure and connect
         const buildkitInfo = await ensureSharedBuildKit();
         await connectToNetwork(wsInfo.containerName, buildkitInfo.networkName);
         await configureBuildxInContainer(wsInfo.containerName, buildkitInfo);
 
-        // Try to run init script if config is available
         if (!options.noInit && wsInfo.configInfo) {
           await runInitScript(wsInfo.configInfo.resolved, { quick: true });
         }
@@ -579,7 +556,6 @@ program
       }
     }
 
-    // For creating a new container or recreating, we NEED the config
     if (!wsInfo.configInfo) {
       console.error(`Cannot create workspace '${workspaceName}': .workspace.yml not found.`);
       console.error("Config file is required for first-time workspace creation.");
@@ -603,7 +579,6 @@ program
       noCache: options.noCache,
     });
 
-    // Ensure shared BuildKit infrastructure
     const buildkitInfo = await ensureSharedBuildKit();
 
     if (containerAlreadyExists) {
@@ -618,13 +593,10 @@ program
         console.log(`Starting existing container ${resolved.workspace.containerName}...`);
         await startContainer(resolved.workspace.containerName);
 
-        // Wait for Docker daemon to be ready
         await waitForDockerd(resolved.workspace.containerName);
 
-        // Ensure container is connected to BuildKit network
         await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
 
-        // Configure buildx in the container
         await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo);
 
         if (!options.noInit) {
@@ -639,18 +611,15 @@ program
     console.log(`Starting new workspace '${resolved.workspace.name}'...`);
     await createContainer(runArgs);
 
-    // Connect to BuildKit network
     await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
 
     try {
       await waitForContainer(resolved.workspace.containerName);
-      // Wait for Docker daemon inside DinD to be ready
       await waitForDockerd(resolved.workspace.containerName);
     } catch (err) {
       console.warn(`Container created but not ready yet: ${err.message}`);
     }
 
-    // Configure buildx in the new container
     await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo);
 
     if (!options.noInit) {
@@ -784,13 +753,11 @@ program
           }
         }
       } catch (err) {
-        // Ignore permission errors and continue
       }
     };
 
     await findWorkspaces(startDir);
 
-    // Add workspaces that have been initialized (exist in state)
     const stateWorkspaces = await listWorkspaceNames();
     stateWorkspaces.forEach(name => workspaceSet.add(name));
 
@@ -821,7 +788,6 @@ program
       return;
     }
 
-    // Try to get runtime info from config if available, otherwise from state file
     let runtime = null;
     if (wsInfo.configInfo) {
       runtime = await ensureWorkspaceState(wsInfo.configInfo.resolved);
@@ -871,8 +837,7 @@ program
     }
     const user = options.root ? "root" : options.user;
 
-    // Detect user's shell from container
-    let userShell = "/bin/bash"; // default fallback
+    let userShell = "/bin/bash";
     try {
       const { stdout } = await runCommand("docker", [
         "exec",
@@ -891,7 +856,6 @@ program
         }
       }
     } catch (err) {
-      // Fall back to bash if detection fails
     }
 
     const args = [
@@ -901,7 +865,6 @@ program
       wsInfo.containerName,
     ];
 
-    // Pass through TERM for proper color support
     if (process.env.TERM) {
       args.splice(1, 0, "-e", `TERM=${process.env.TERM}`);
     }
@@ -923,7 +886,6 @@ program
   .action(async (workspaceName, options) => {
     const wsInfo = await getWorkspaceInfo(workspaceName, options);
 
-    // Get runtime info (SSH port and forwards)
     let runtime = null;
     if (wsInfo.configInfo) {
       runtime = await ensureWorkspaceState(wsInfo.configInfo.resolved);
@@ -942,7 +904,6 @@ program
       return;
     }
 
-    // Check if SSH key exists
     if (!fs.existsSync(wsInfo.keyPath)) {
       console.error(`SSH key not found at ${wsInfo.keyPath}. The workspace may not be properly initialized.`);
       process.exitCode = 1;
@@ -1067,19 +1028,16 @@ program
     if (options.clean) {
       console.log("Cleaning up shared BuildKit resources...");
 
-      // Stop and remove BuildKit daemon
       if (await containerExists(buildkitdName)) {
         console.log(`Removing BuildKit daemon: ${buildkitdName}`);
         await removeContainer(buildkitdName, { force: true });
       }
 
-      // Remove network
       if (await networkExists(networkName)) {
         console.log(`Removing network: ${networkName}`);
         await runCommand("docker", ["network", "rm", networkName]);
       }
 
-      // Remove volume
       if (await volumeExists(volumeName)) {
         console.log(`Removing cache volume: ${volumeName}`);
         await removeVolumes([volumeName]);
@@ -1114,7 +1072,6 @@ program
       return;
     }
 
-    // Default: show status
     console.log("Shared BuildKit Infrastructure Status:\n");
 
     console.log(`Network: ${networkName}`);

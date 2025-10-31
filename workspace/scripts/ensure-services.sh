@@ -39,7 +39,6 @@ start_sshd() {
   /usr/sbin/sshd -D >/var/log/sshd.log 2>&1 &
 }
 
-# Initial startup
 start_docker
 start_sshd
 
