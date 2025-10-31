@@ -1,7 +1,6 @@
 {
-  "name": "workspace",
+  "name": "@subroutinecom/workspace",
   "version": "0.1.0",
-  "private": true,
   "description": "Self-contained CLI for spinning up Docker-in-Docker workspaces with SSH and proxy helpers.",
   "workspaces": [
     "packages/*"
@@ -26,5 +25,22 @@
   },
   "devDependencies": {
     "vitest": "^4.0.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/subroutinecom/workspace.git"
+  },
+  "keywords": [
+    "docker",
+    "development",
+    "workspace",
+    "cli",
+    "docker-in-docker",
+    "ssh"
+  ],
+  "author": "Subroutine",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
   }
 }
