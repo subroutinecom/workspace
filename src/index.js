@@ -478,7 +478,49 @@ const runInitScript = async (resolved, { quick = true } = {}) => {
   await runCommandStreaming("docker", args);
 };
 
-// init command removed - just create .workspace.yml manually in your project directory
+program
+  .command("init")
+  .description("Create a .workspace.yml config file in the current directory")
+  .argument("[name]", "optional workspace name (defaults to directory name)")
+  .option("-f, --force", "overwrite existing config file", false)
+  .action(async (workspaceName, options) => {
+    const targetDir = process.cwd();
+    const dirName = path.basename(targetDir);
+    const name = workspaceName || dirName;
+    const configPath = path.join(targetDir, DEFAULT_CONFIG_FILENAME);
+
+    // Check if config already exists
+    if (await configExists(targetDir)) {
+      if (!options.force) {
+        console.error(`Config file already exists: ${configPath}`);
+        console.error("Use --force to overwrite.");
+        process.exitCode = 1;
+        return;
+      }
+      console.log(`Overwriting existing config: ${configPath}`);
+    }
+
+    // Build default config with git info
+    const config = await buildDefaultConfig(targetDir);
+
+    // Write config to file
+    const writtenPath = await writeConfig(targetDir, config);
+    console.log(`Created workspace config: ${writtenPath}`);
+    console.log("");
+    console.log("Configuration scaffold:");
+    console.log("  repo:");
+    console.log(`    remote: ${config.repo.remote || "(none - add your git remote)"}`);
+    console.log(`    branch: ${config.repo.branch}`);
+    console.log(`  forwards:`);
+    console.log(`    - ${config.forwards.join("\n    - ")}`);
+    console.log("");
+    console.log("Edit the config file to customize:");
+    console.log("  - Add bootstrap scripts under 'bootstrap.scripts'");
+    console.log("  - Add host directory mounts under 'mounts'");
+    console.log("  - Configure port forwards under 'forwards'");
+    console.log("");
+    console.log(`Start your workspace with: workspace start ${name}`);
+  });
 
 program
   .command("build")
