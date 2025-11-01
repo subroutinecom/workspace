@@ -931,10 +931,28 @@ program
 
     baseArgs.push("workspace@localhost");
 
-    console.log("Starting SSH port forwarding (Ctrl+C to stop)...");
-    forwards.forEach((port) => {
-      console.log(`  127.0.0.1:${port} -> localhost:${port}`);
-    });
+    const formatPortRanges = (ports) => {
+      if (!ports.length) return '';
+      const sorted = [...ports].sort((a, b) => a - b);
+      const ranges = [];
+      let start = sorted[0];
+      let end = sorted[0];
+
+      for (let i = 1; i <= sorted.length; i++) {
+        if (i < sorted.length && sorted[i] === end + 1) {
+          end = sorted[i];
+        } else {
+          ranges.push(start === end ? `${start}` : `${start}-${end}`);
+          if (i < sorted.length) {
+            start = sorted[i];
+            end = sorted[i];
+          }
+        }
+      }
+      return ranges.join(', ');
+    };
+
+    console.log(`SSH: ${runtime.sshPort} | Forwards: ${formatPortRanges(forwards)}`);
     await runCommandStreaming("ssh", baseArgs);
   });
 
