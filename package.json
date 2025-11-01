@@ -6,9 +6,8 @@
     "workspace": "./src/index.js"
   },
   "scripts": {
-    "test": "vitest run test/e2e/bootstrap.test.js",
-    "test:watch": "vitest test/e2e/bootstrap.test.js",
-    "test:old": "node --test"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "engines": {
     "node": ">=18"

@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
  */
 
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const PACKAGES_DIR = path.join(PROJECT_ROOT, "packages");
+const TEST_WORKSPACES_DIR = path.join("/tmp", "workspace-test-workspaces");
 const WORKSPACE_CLI = path.join(PROJECT_ROOT, "src/index.js");
 
 /**
@@ -46,7 +46,8 @@ function execWorkspace(args, options = {}) {
  * @returns {string} Path to workspace directory
  */
 async function createTestWorkspace(name, config = {}, scripts = {}) {
-  const workspaceDir = path.join(PACKAGES_DIR, name);
+  await fs.ensureDir(TEST_WORKSPACES_DIR);
+  const workspaceDir = path.join(TEST_WORKSPACES_DIR, name);
   const scriptsDir = path.join(workspaceDir, "scripts");
 
   await fs.ensureDir(workspaceDir);
@@ -137,7 +138,7 @@ function startWorkspace(name, options = {}) {
   if (options.noCache) args.push("--no-cache");
   if (options.forceRecreate) args.push("--force-recreate");
 
-  const workspaceDir = path.join(PACKAGES_DIR, name);
+  const workspaceDir = path.join(TEST_WORKSPACES_DIR, name);
   if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {
     return execSync(
       `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} ${args.join(" ")}`,
@@ -154,7 +155,7 @@ function startWorkspace(name, options = {}) {
  */
 function stopWorkspace(name) {
   try {
-    const workspaceDir = path.join(PACKAGES_DIR, name);
+    const workspaceDir = path.join(TEST_WORKSPACES_DIR, name);
     if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {
       return execSync(
         `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} stop ${name}`,
@@ -176,7 +177,7 @@ function stopWorkspace(name) {
 function destroyWorkspace(name) {
   try {
     // First try to use workspace command from workspace directory
-    const workspaceDir = path.join(PACKAGES_DIR, name);
+    const workspaceDir = path.join(TEST_WORKSPACES_DIR, name);
     if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {
       return execSync(
         `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} destroy ${name} --force`,
@@ -220,7 +221,7 @@ function destroyWorkspace(name) {
  * @param {string} name - Workspace name
  */
 async function cleanupTestWorkspace(name) {
-  const workspaceDir = path.join(PACKAGES_DIR, name);
+  const workspaceDir = path.join(TEST_WORKSPACES_DIR, name);
 
   try {
     destroyWorkspace(name);
