@@ -822,6 +822,52 @@ program
   });
 
 program
+  .command("info")
+  .description("Show quick workspace summary")
+  .argument("<workspace>", "name of the workspace")
+  .option("--path <path>", "use workspace configuration from a specific path")
+  .action(async (workspaceName, options) => {
+    const wsInfo = await getWorkspaceInfo(workspaceName, options);
+    const exists = await containerExists(wsInfo.containerName);
+    const running = exists && await containerRunning(wsInfo.containerName);
+
+    let runtime = null;
+    if (wsInfo.configInfo) {
+      runtime = await ensureWorkspaceState(wsInfo.configInfo.resolved);
+    } else {
+      runtime = await loadWorkspaceState(wsInfo.name);
+    }
+
+    const formatPortRanges = (ports) => {
+      if (!ports || !ports.length) return 'none';
+      const sorted = [...ports].sort((a, b) => a - b);
+      const ranges = [];
+      let start = sorted[0];
+      let end = sorted[0];
+
+      for (let i = 1; i <= sorted.length; i++) {
+        if (i < sorted.length && sorted[i] === end + 1) {
+          end = sorted[i];
+        } else {
+          ranges.push(start === end ? `${start}` : `${start}-${end}`);
+          if (i < sorted.length) {
+            start = sorted[i];
+            end = sorted[i];
+          }
+        }
+      }
+      return ranges.join(', ');
+    };
+
+    const status = !exists ? 'not created' : (running ? 'running' : 'stopped');
+    const sshPort = runtime?.sshPort || 'n/a';
+    const forwards = formatPortRanges(runtime?.forwards);
+    const configPath = runtime?.configDir || wsInfo.configInfo?.configDir || 'n/a';
+
+    console.log(`${workspaceName} | ${status} | SSH: ${sshPort} | Forwards: ${forwards} | Config: ${configPath}`);
+  });
+
+program
   .command("shell")
   .description("Open an interactive shell inside the workspace via docker exec")
   .argument("<workspace>", "name of the workspace")

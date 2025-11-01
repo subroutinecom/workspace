@@ -77,18 +77,21 @@ const ensureWorkspaceState = async (resolved) => {
       state.workspaces[name] = {
         sshPort,
         forwards: [],
+        configDir: resolved.workspace.configDir,
       };
     }
 
     const workspaceState = state.workspaces[name];
 
     workspaceState.forwards = [...resolved.workspace.forwards];
+    workspaceState.configDir = resolved.workspace.configDir;
 
     await saveState(state);
 
     return {
       sshPort: workspaceState.sshPort,
       forwards: workspaceState.forwards,
+      configDir: workspaceState.configDir,
     };
   });
 };
