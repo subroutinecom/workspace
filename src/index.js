@@ -12,17 +12,10 @@ const {
   writeConfig,
   loadConfig,
   resolveConfig,
-  ensureTemplate,
   configExists,
   DEFAULT_CONFIG_FILENAME,
 } = require("./config");
-const {
-  runCommand,
-  runCommandStreaming,
-  ensureDir,
-  writeJson,
-  sleep,
-} = require("./utils");
+const { runCommand, runCommandStreaming, ensureDir, writeJson, sleep } = require("./utils");
 const {
   imageExists,
   buildImage,
@@ -43,11 +36,16 @@ const {
 } = require("./docker");
 const { ensureWorkspaceState, removeWorkspaceState, listWorkspaceNames } = require("./state");
 const pkg = require("../package.json");
+const updateNotifier = require("update-notifier");
 
-(async () => {
-  const updateNotifier = (await import("update-notifier")).default;
-  updateNotifier({ pkg }).notify();
-})();
+// const notifier = updateNotifier({ pkg });
+const notifier = updateNotifier.default({
+  pkg: pkg,
+  updateCheckInterval: 0,
+});
+notifier.notify({
+  message: "New version available. Run `workspace update`",
+});
 
 const program = new Command();
 program.name("workspace").description("Self-contained CLI for Docker-in-Docker workspaces").version(pkg.version);
@@ -74,7 +72,7 @@ const confirmPrompt = (message) => {
 
     rl.question(`${message} (y/N): `, (answer) => {
       rl.close();
-      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
+      resolve(answer.toLowerCase() === "y" || answer.toLowerCase() === "yes");
     });
   });
 };
@@ -137,16 +135,7 @@ const ensureSshKey = async (resolved) => {
   await ensureDir(keyDir);
   const pubPath = `${keyPath}.pub`;
   if (!fs.existsSync(keyPath)) {
-    await runCommand("ssh-keygen", [
-      "-t",
-      "ed25519",
-      "-f",
-      keyPath,
-      "-N",
-      "",
-      "-C",
-      `workspace-${resolved.workspace.name}`,
-    ]);
+    await runCommand("ssh-keygen", ["-t", "ed25519", "-f", keyPath, "-N", "", "-C", `workspace-${resolved.workspace.name}`]);
   }
   const publicKey = fs.readFileSync(pubPath, "utf8").trim();
   return {
@@ -298,12 +287,7 @@ const configureBuildxInContainer = async (containerName, buildkitInfo) => {
   console.log(`  Configuring for user: ${user}`);
 
   try {
-    const rmResult = await execInContainer(containerName, [
-      "docker",
-      "buildx",
-      "rm",
-      builderName,
-    ], { user });
+    const rmResult = await execInContainer(containerName, ["docker", "buildx", "rm", builderName], { user });
     console.log(`  Removed existing builder: ${builderName}`);
   } catch (err) {
     console.log(`  No existing builder to remove`);
@@ -311,17 +295,11 @@ const configureBuildxInContainer = async (containerName, buildkitInfo) => {
 
   console.log(`  Creating remote builder: ${builderName} -> ${buildkitdEndpoint}`);
   try {
-    const createResult = await execInContainer(containerName, [
-      "docker",
-      "buildx",
-      "create",
-      "--name",
-      builderName,
-      "--driver",
-      "remote",
-      buildkitdEndpoint,
-      "--use",
-    ], { user });
+    const createResult = await execInContainer(
+      containerName,
+      ["docker", "buildx", "create", "--name", builderName, "--driver", "remote", buildkitdEndpoint, "--use"],
+      { user }
+    );
     console.log(`  ✓ Builder created: ${createResult.stdout.trim()}`);
   } catch (err) {
     console.error(`  ✗ FAILED to create builder!`);
@@ -335,12 +313,7 @@ const configureBuildxInContainer = async (containerName, buildkitInfo) => {
 
   console.log(`  Bootstrapping builder to verify connectivity...`);
   try {
-    await execInContainer(containerName, [
-      "docker",
-      "buildx",
-      "inspect",
-      "--bootstrap",
-    ], { user });
+    await execInContainer(containerName, ["docker", "buildx", "inspect", "--bootstrap"], { user });
     console.log(`  ✓ Builder is connected and ready`);
   } catch (err) {
     console.error(`  ✗ FAILED to bootstrap builder!`);
@@ -396,22 +369,13 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   addEnv("DOCKER_BUILDKIT", "1");
   addEnv("COMPOSE_DOCKER_CLI_BUILD", "1");
 
-  runArgs.push(
-    "-v",
-    `${resolved.workspace.state.runtimeConfigPath}:/workspace/config/runtime.json:ro`,
-  );
-  runArgs.push(
-    "-v",
-    `${resolved.workspace.configDir}:/workspace/source:ro`,
-  );
+  runArgs.push("-v", `${resolved.workspace.state.runtimeConfigPath}:/workspace/config/runtime.json:ro`);
+  runArgs.push("-v", `${resolved.workspace.configDir}:/workspace/source:ro`);
 
   // Mount user scripts directory if it exists
   const userScriptsDir = path.join(os.homedir(), ".workspaces", "userscripts");
   if (fs.existsSync(userScriptsDir)) {
-    runArgs.push(
-      "-v",
-      `${userScriptsDir}:/workspace/userscripts:ro`,
-    );
+    runArgs.push("-v", `${userScriptsDir}:/workspace/userscripts:ro`);
   }
 
   // Always mount host home directory
@@ -447,13 +411,7 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
 };
 
 const runInitScript = async (resolved, { quick = true } = {}) => {
-  const args = [
-    "exec",
-    "-u",
-    "workspace",
-    resolved.workspace.containerName,
-    "/usr/local/bin/init-workspace.sh",
-  ];
+  const args = ["exec", "-u", "workspace", resolved.workspace.containerName, "/usr/local/bin/init-workspace.sh"];
   if (quick) {
     args.push("--quick");
   }
@@ -507,7 +465,7 @@ program
   .option("--no-cache", "build without using Docker cache")
   .action(async (options) => {
     const { TEMPLATE_SOURCE } = require("./config");
-    const imageTag = 'workspace:latest';
+    const imageTag = "workspace:latest";
     console.log(`Building shared image ${imageTag}...`);
     await buildImage(imageTag, TEMPLATE_SOURCE, {
       noCache: options.noCache,
@@ -563,8 +521,8 @@ program
 
     const { resolved } = wsInfo.configInfo;
     const wsName = resolved.workspace.name;
-    const cliHint = `workspace shell${wsName ? ' ' + wsName : ''}`;
-    const proxyHint = `workspace proxy${wsName ? ' ' + wsName : ''}`;
+    const cliHint = `workspace shell${wsName ? " " + wsName : ""}`;
+    const proxyHint = `workspace proxy${wsName ? " " + wsName : ""}`;
 
     await ensureDir(resolved.workspace.state.root);
     const runtime = await ensureWorkspaceState(resolved);
@@ -629,11 +587,7 @@ program
     console.log(`  Container : ${resolved.workspace.containerName}`);
     console.log(`  SSH port  : ${runtime.sshPort}`);
     if (runtime.forwards.length) {
-      console.log(
-        `  Forwards  : ${runtime.forwards
-          .map((port) => `${port}->${port}`)
-          .join(", ")}`,
-      );
+      console.log(`  Forwards  : ${runtime.forwards.map((port) => `${port}->${port}`).join(", ")}`);
     }
     console.log(`  Volumes   : ${Object.values(volumes).join(", ")}`);
     console.log("");
@@ -728,9 +682,7 @@ program
   .description("List all available workspaces")
   .option("--path <path>", "list workspaces in a specific repository path")
   .action(async (options) => {
-    const startDir = options.path
-      ? path.resolve(options.path)
-      : await discoverRepoRoot(process.cwd());
+    const startDir = options.path ? path.resolve(options.path) : await discoverRepoRoot(process.cwd());
 
     const workspaceSet = new Set();
 
@@ -742,11 +694,16 @@ program
         const entries = await fs.promises.readdir(dir, { withFileTypes: true });
 
         for (const entry of entries) {
-          if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+          if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules") {
             const entryPath = path.join(dir, entry.name);
             const configPath = path.join(entryPath, DEFAULT_CONFIG_FILENAME);
 
-            if (await fs.promises.access(configPath).then(() => true).catch(() => false)) {
+            if (
+              await fs.promises
+                .access(configPath)
+                .then(() => true)
+                .catch(() => false)
+            ) {
               workspaceSet.add(entry.name);
             }
 
@@ -754,14 +711,13 @@ program
             await findWorkspaces(entryPath, maxDepth, currentDepth + 1);
           }
         }
-      } catch (err) {
-      }
+      } catch (err) {}
     };
 
     await findWorkspaces(startDir);
 
     const stateWorkspaces = await listWorkspaceNames();
-    stateWorkspaces.forEach(name => workspaceSet.add(name));
+    stateWorkspaces.forEach((name) => workspaceSet.add(name));
 
     const workspaces = Array.from(workspaceSet).sort();
 
@@ -814,11 +770,7 @@ program
       console.log(`Remote    : ${wsInfo.configInfo.resolved.workspace.repo.remote} (${wsInfo.configInfo.resolved.workspace.repo.branch})`);
     }
     console.log("");
-    console.log(
-      running
-        ? `Use 'workspace shell ${workspaceName}' to connect.`
-        : `Start the workspace with 'workspace start ${workspaceName}'.`,
-    );
+    console.log(running ? `Use 'workspace shell ${workspaceName}' to connect.` : `Start the workspace with 'workspace start ${workspaceName}'.`);
   });
 
 program
@@ -829,7 +781,7 @@ program
   .action(async (workspaceName, options) => {
     const wsInfo = await getWorkspaceInfo(workspaceName, options);
     const exists = await containerExists(wsInfo.containerName);
-    const running = exists && await containerRunning(wsInfo.containerName);
+    const running = exists && (await containerRunning(wsInfo.containerName));
 
     let runtime = null;
     if (wsInfo.configInfo) {
@@ -839,7 +791,7 @@ program
     }
 
     const formatPortRanges = (ports) => {
-      if (!ports || !ports.length) return 'none';
+      if (!ports || !ports.length) return "none";
       const sorted = [...ports].sort((a, b) => a - b);
       const ranges = [];
       let start = sorted[0];
@@ -856,13 +808,13 @@ program
           }
         }
       }
-      return ranges.join(', ');
+      return ranges.join(", ");
     };
 
-    const status = !exists ? 'not created' : (running ? 'running' : 'stopped');
-    const sshPort = runtime?.sshPort || 'n/a';
+    const status = !exists ? "not created" : running ? "running" : "stopped";
+    const sshPort = runtime?.sshPort || "n/a";
     const forwards = formatPortRanges(runtime?.forwards);
-    const configPath = runtime?.configDir || wsInfo.configInfo?.configDir || 'n/a';
+    const configPath = runtime?.configDir || wsInfo.configInfo?.configDir || "n/a";
 
     console.log(`${workspaceName} | ${status} | SSH: ${sshPort} | Forwards: ${forwards} | Config: ${configPath}`);
   });
@@ -877,9 +829,7 @@ program
   .action(async (workspaceName, options) => {
     const wsInfo = await getWorkspaceInfo(workspaceName, options);
     if (!(await containerRunning(wsInfo.containerName))) {
-      console.error(
-        `Workspace container is not running. Start it with 'workspace start ${workspaceName}'.`,
-      );
+      console.error(`Workspace container is not running. Start it with 'workspace start ${workspaceName}'.`);
       process.exitCode = 1;
       return;
     }
@@ -887,15 +837,7 @@ program
 
     let userShell = "/bin/bash";
     try {
-      const { stdout } = await runCommand("docker", [
-        "exec",
-        "-u",
-        user,
-        wsInfo.containerName,
-        "getent",
-        "passwd",
-        user,
-      ]);
+      const { stdout } = await runCommand("docker", ["exec", "-u", user, wsInfo.containerName, "getent", "passwd", user]);
       const passwdEntry = stdout.trim();
       if (passwdEntry) {
         const shellPath = passwdEntry.split(":")[6];
@@ -903,15 +845,9 @@ program
           userShell = shellPath;
         }
       }
-    } catch (err) {
-    }
+    } catch (err) {}
 
-    const args = [
-      "exec",
-      "-u",
-      user,
-      wsInfo.containerName,
-    ];
+    const args = ["exec", "-u", user, wsInfo.containerName];
 
     if (process.env.TERM) {
       args.splice(1, 0, "-e", `TERM=${process.env.TERM}`);
@@ -978,7 +914,7 @@ program
     baseArgs.push("workspace@localhost");
 
     const formatPortRanges = (ports) => {
-      if (!ports.length) return '';
+      if (!ports.length) return "";
       const sorted = [...ports].sort((a, b) => a - b);
       const ranges = [];
       let start = sorted[0];
@@ -995,7 +931,7 @@ program
           }
         }
       }
-      return ranges.join(', ');
+      return ranges.join(", ");
     };
 
     console.log(`SSH: ${runtime.sshPort} | Forwards: ${formatPortRanges(forwards)}`);
