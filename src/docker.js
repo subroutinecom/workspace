@@ -73,7 +73,15 @@ const removeVolumes = async (volumes = []) => {
   if (!volumes.length) {
     return;
   }
-  await dockerCommandStreaming(["volume", "rm", ...volumes]);
+  const existing = [];
+  for (const vol of volumes) {
+    if (await volumeExists(vol)) {
+      existing.push(vol);
+    }
+  }
+  if (existing.length > 0) {
+    await dockerCommandStreaming(["volume", "rm", ...existing]);
+  }
 };
 
 const inspectContainer = async (name) => {

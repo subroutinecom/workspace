@@ -701,16 +701,21 @@ program
     for (const workspaceName of workspaceNames) {
       console.log(`\n=== Removing workspace '${workspaceName}' ===`);
       const wsInfo = await getWorkspaceInfo(workspaceName, options);
-      if (await containerExists(wsInfo.containerName)) {
-        console.log(`Removing container ${wsInfo.containerName}...`);
-        await removeContainer(wsInfo.containerName, { force: true });
-      }
-      if (!options.keepVolumes) {
-        const volumes = computeVolumes(wsInfo.containerName);
-        console.log("Removing volumes...");
-        await removeVolumes(Object.values(volumes));
-      } else {
-        console.log("Retained Docker volumes as requested.");
+      try {
+        if (await containerExists(wsInfo.containerName)) {
+          console.log(`Removing container ${wsInfo.containerName}...`);
+          await removeContainer(wsInfo.containerName, { force: true });
+        }
+        if (!options.keepVolumes) {
+          const volumes = computeVolumes(wsInfo.containerName);
+          console.log("Removing volumes...");
+          await removeVolumes(Object.values(volumes));
+        } else {
+          console.log("Retained Docker volumes as requested.");
+        }
+      } catch (err) {
+        console.error(`Warning: Error during cleanup: ${err.message}`);
+        console.log("Continuing with state cleanup...");
       }
       console.log("Workspace removed.");
       await removeWorkspaceState(wsInfo.name);
