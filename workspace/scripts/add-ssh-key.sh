@@ -6,18 +6,19 @@ WORKSPACE_HOME="${WORKSPACE_HOME:-/home/workspace}"
 AUTHORIZED_KEYS="${WORKSPACE_HOME}/.ssh/authorized_keys"
 
 mkdir -p "${WORKSPACE_HOME}/.ssh"
-touch "${AUTHORIZED_KEYS}"
-
-if [[ -n "${SSH_PUBLIC_KEY:-}" ]]; then
-  echo "${SSH_PUBLIC_KEY}" >> "${AUTHORIZED_KEYS}"
-fi
-
-if [[ -f /host/home/.ssh/authorized_keys ]]; then
-  cat /host/home/.ssh/authorized_keys >> "${AUTHORIZED_KEYS}"
-fi
 
 if [[ -d /host/home/.ssh ]]; then
   cp -r /host/home/.ssh/* "${WORKSPACE_HOME}/.ssh/" 2>/dev/null || true
+fi
+
+if [[ ! -f "${AUTHORIZED_KEYS}" ]]; then
+  touch "${AUTHORIZED_KEYS}"
+fi
+
+if [[ -n "${SSH_PUBLIC_KEY:-}" ]]; then
+  if ! grep -qF "${SSH_PUBLIC_KEY}" "${AUTHORIZED_KEYS}" 2>/dev/null; then
+    echo "${SSH_PUBLIC_KEY}" >> "${AUTHORIZED_KEYS}"
+  fi
 fi
 
 sort -u "${AUTHORIZED_KEYS}" -o "${AUTHORIZED_KEYS}" 2>/dev/null || true
