@@ -116,6 +116,26 @@ PY
     )
   fi
 
+  local selected_key
+  selected_key=$(get_selected_ssh_key)
+
+  if [[ -n "${selected_key}" ]]; then
+    if [[ -f "${WORKSPACE_HOME}/.ssh/${selected_key}" ]]; then
+      log "Selected SSH key from config: ${selected_key}"
+      export GIT_SSH_COMMAND="ssh -i ~/.ssh/${selected_key} -F ~/.ssh/config"
+      log "GIT_SSH_COMMAND set to: ${GIT_SSH_COMMAND}"
+    else
+      log "WARNING: Selected SSH key not found: ${WORKSPACE_HOME}/.ssh/${selected_key}"
+    fi
+  else
+    log "No SSH key selected in runtime config, will use SSH agent or default keys"
+    if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
+      log "SSH agent available at: ${SSH_AUTH_SOCK}"
+    else
+      log "WARNING: No SSH agent available"
+    fi
+  fi
+
   ensure_known_host "${REPO_URL}"
 
   local clone_cmd=(git clone)
