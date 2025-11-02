@@ -117,6 +117,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
   && node --version \
   && npm --version
 
+ENV BUN_INSTALL=/usr/local
+RUN bash -lc "curl -fsSL https://bun.sh/install | bash" \
+  && bun --version
+
 # Create workspace user with passwordless sudo
 RUN useradd -m -s /bin/bash workspace \
   && echo "workspace:workspace" | chpasswd \
@@ -156,16 +160,18 @@ RUN mkdir -p /home/workspace /workspace/config /workspace/template /workspace/so
   && chown -R workspace:workspace /home/workspace /workspace
 
 COPY scripts /opt/workspace/scripts
-RUN chmod +x /opt/workspace/scripts/*.sh \
+COPY internal/package.json /opt/workspace/internal/package.json
+RUN cd /opt/workspace/internal && bun install --production
+COPY internal /opt/workspace/internal
+RUN chmod +x /opt/workspace/scripts/dockerd-entrypoint.sh \
   && install -m 0755 /opt/workspace/scripts/dockerd-entrypoint.sh /usr/local/bin/dockerd-entrypoint.sh \
-  && install -m 0755 /opt/workspace/scripts/init-workspace.sh /usr/local/bin/init-workspace.sh \
-  && install -m 0755 /opt/workspace/scripts/ensure-services.sh /usr/local/bin/ensure-services.sh \
-  && install -m 0755 /opt/workspace/scripts/entrypoint.sh /opt/workspace/entrypoint.sh \
-  && install -m 0755 /opt/workspace/scripts/add-ssh-key.sh /opt/workspace/add-ssh-key.sh
+  && chmod +x /opt/workspace/internal/src/index.ts \
+  && printf '#!/bin/sh\nexec bun /opt/workspace/internal/src/index.ts "$@"\n' > /usr/local/bin/workspace-internal \
+  && chmod +x /usr/local/bin/workspace-internal
 
 USER root
 WORKDIR /home/workspace
 
 EXPOSE 22 2376
 
-ENTRYPOINT ["/opt/workspace/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/workspace-internal", "entrypoint"]

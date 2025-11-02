@@ -1,16 +1,84 @@
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-const yaml = require("yaml");
-const fsExtra = require("fs-extra");
-const { runCommand } = require("./utils");
+import path from "path";
+import os from "os";
+import yaml from "yaml";
+import fsExtra from "fs-extra";
+import { runCommand } from "./utils";
 
-const DEFAULT_CONFIG_FILENAME = ".workspace.yml";
-const USER_CONFIG_FILENAME = "config.yml";
+export const DEFAULT_CONFIG_FILENAME = ".workspace.yml";
+export const USER_CONFIG_FILENAME = "config.yml";
+
 const PACKAGE_ROOT = path.resolve(__dirname, "..");
 const TEMPLATE_SOURCE = path.join(PACKAGE_ROOT, "workspace");
 
-const discoverRepoRoot = async (cwd = process.cwd()) => {
+type ForwardInput = number | string | { internal: string | number };
+
+interface RepoConfig {
+  remote?: string;
+  branch?: string;
+  cloneArgs?: string[];
+}
+
+type BootstrapScriptEntry = string | { path: string; source?: string };
+
+interface BootstrapConfig {
+  scripts?: BootstrapScriptEntry[];
+}
+
+export interface WorkspaceConfig {
+  repo?: RepoConfig;
+  forwards?: ForwardInput[];
+  mounts?: string[];
+  bootstrap?: BootstrapConfig;
+  [key: string]: unknown;
+}
+
+export interface ResolvedBootstrapScript {
+  path: string;
+  source: string;
+}
+
+export interface ResolvedMount {
+  source: string;
+  target: string;
+  mode: string;
+}
+
+export interface ResolvedWorkspaceConfig {
+  raw: WorkspaceConfig;
+  paths: {
+    configDir: string;
+    configFile: string;
+  };
+  workspace: {
+    name: string;
+    imageTag: string;
+    containerName: string;
+    configDir: string;
+    buildContext: string;
+    repo: {
+      remote: string;
+      branch: string;
+      cloneArgs: string[];
+    };
+    forwards: number[];
+    mounts: ResolvedMount[];
+    bootstrap: {
+      scripts: ResolvedBootstrapScript[];
+    };
+    state: {
+      root: string;
+      sshDir: string;
+      keyPath: string;
+      runtimeConfigPath: string;
+    };
+  };
+}
+
+interface FindWorkspaceOptions {
+  path?: string;
+}
+
+export const discoverRepoRoot = async (cwd: string = process.cwd()): Promise<string> => {
   try {
     const { stdout } = await runCommand("git", ["rev-parse", "--show-toplevel"], {
       cwd,
@@ -21,14 +89,8 @@ const discoverRepoRoot = async (cwd = process.cwd()) => {
   }
 };
 
-/**
- * Search upward from CWD (or options.path) for the nearest .workspace.yml
- * Workspace name is completely independent of directory structure
- */
-const findWorkspaceDir = async (options = {}) => {
-  const startDir = options.path
-    ? path.resolve(options.path)
-    : process.cwd();
+export const findWorkspaceDir = async (options: FindWorkspaceOptions = {}): Promise<string> => {
+  const startDir = options.path ? path.resolve(options.path) : process.cwd();
   const repoRoot = await discoverRepoRoot(startDir);
   const homeDir = os.homedir();
 
@@ -40,7 +102,7 @@ const findWorkspaceDir = async (options = {}) => {
       return currentDir;
     }
 
-    if (currentDir === repoRoot || currentDir === homeDir || currentDir === '/') {
+    if (currentDir === repoRoot || currentDir === homeDir || currentDir === "/") {
       break;
     }
 
@@ -53,11 +115,11 @@ const findWorkspaceDir = async (options = {}) => {
 
   throw new Error(
     `No ${DEFAULT_CONFIG_FILENAME} found from ${startDir} to ${repoRoot}. ` +
-    `Create ${DEFAULT_CONFIG_FILENAME} in your project directory.`
+      `Create ${DEFAULT_CONFIG_FILENAME} in your project directory.`,
   );
 };
 
-const getGitRemote = async (configDir) => {
+const getGitRemote = async (configDir: string): Promise<string> => {
   try {
     const { stdout } = await runCommand("git", ["config", "--get", "remote.origin.url"], {
       cwd: configDir,
@@ -68,7 +130,7 @@ const getGitRemote = async (configDir) => {
   }
 };
 
-const getGitBranch = async (configDir) => {
+const getGitBranch = async (configDir: string): Promise<string> => {
   try {
     const { stdout } = await runCommand("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd: configDir,
@@ -79,7 +141,7 @@ const getGitBranch = async (configDir) => {
   }
 };
 
-const buildDefaultConfig = async (configDir) => {
+export const buildDefaultConfig = async (configDir: string): Promise<WorkspaceConfig> => {
   const remote = await getGitRemote(configDir);
   const branch = await getGitBranch(configDir);
 
@@ -92,34 +154,40 @@ const buildDefaultConfig = async (configDir) => {
   };
 };
 
-const configExists = async (configDir, filename = DEFAULT_CONFIG_FILENAME) =>
-  fsExtra.pathExists(path.join(configDir, filename));
+export const configExists = async (
+  configDir: string,
+  filename: string = DEFAULT_CONFIG_FILENAME,
+): Promise<boolean> => fsExtra.pathExists(path.join(configDir, filename));
 
-const writeConfig = async (configDir, config, options = {}) => {
-  const configPath = path.join(
-    configDir,
-    options.filename || DEFAULT_CONFIG_FILENAME,
-  );
+export const writeConfig = async (
+  configDir: string,
+  config: WorkspaceConfig,
+  options: { filename?: string } = {},
+): Promise<string> => {
+  const configPath = path.join(configDir, options.filename || DEFAULT_CONFIG_FILENAME);
   const yamlContents = yaml.stringify(config, { indent: 2 });
   await fsExtra.writeFile(configPath, yamlContents, "utf8");
   return configPath;
 };
 
-const loadConfig = async (configDir, filename = DEFAULT_CONFIG_FILENAME) => {
+export const loadConfig = async (
+  configDir: string,
+  filename: string = DEFAULT_CONFIG_FILENAME,
+): Promise<WorkspaceConfig> => {
   const configPath = path.join(configDir, filename);
   const contents = await fsExtra.readFile(configPath, "utf8");
-  return yaml.parse(contents);
+  return yaml.parse(contents) as WorkspaceConfig;
 };
 
-const getUserConfigDir = () => {
+export const getUserConfigDir = (): string => {
   return path.join(os.homedir(), ".workspaces");
 };
 
-const getUserConfigPath = () => {
+export const getUserConfigPath = (): string => {
   return path.join(getUserConfigDir(), USER_CONFIG_FILENAME);
 };
 
-const ensureUserConfig = async () => {
+export const ensureUserConfig = async (): Promise<void> => {
   const configDir = getUserConfigDir();
   const configPath = getUserConfigPath();
   const userScriptsDir = path.join(configDir, "userscripts");
@@ -128,7 +196,7 @@ const ensureUserConfig = async () => {
   await fsExtra.ensureDir(userScriptsDir);
 
   if (!(await fsExtra.pathExists(configPath))) {
-    const defaultUserConfig = {
+    const defaultUserConfig: WorkspaceConfig = {
       bootstrap: {
         scripts: ["userscripts"],
       },
@@ -148,45 +216,46 @@ echo "Hello from user bootstrap script!"
   }
 };
 
-const loadUserConfig = async () => {
+export const loadUserConfig = async (): Promise<WorkspaceConfig | null> => {
   const configPath = getUserConfigPath();
   if (!(await fsExtra.pathExists(configPath))) {
     return null;
   }
   const contents = await fsExtra.readFile(configPath, "utf8");
-  return yaml.parse(contents);
+  return yaml.parse(contents) as WorkspaceConfig;
 };
 
-const mergeConfigs = (projectConfig, userConfig) => {
+export const mergeConfigs = (
+  projectConfig: WorkspaceConfig,
+  userConfig: WorkspaceConfig | null,
+): WorkspaceConfig => {
   if (!userConfig) {
     return projectConfig;
   }
 
-  const merged = { ...projectConfig };
+  const merged: WorkspaceConfig = { ...projectConfig };
 
   if (userConfig.forwards) {
-    merged.forwards = [
-      ...(merged.forwards || []),
-      ...(userConfig.forwards || []),
-    ];
+    merged.forwards = [...(merged.forwards || []), ...(userConfig.forwards || [])];
   }
 
   if (userConfig.mounts) {
-    merged.mounts = [
-      ...(merged.mounts || []),
-      ...(userConfig.mounts || []),
-    ];
+    merged.mounts = [...(merged.mounts || []), ...(userConfig.mounts || [])];
   }
 
   if (userConfig.bootstrap) {
-    const projectScripts = (projectConfig.bootstrap?.scripts || []).map(script => ({
-      path: script,
-      source: 'project'
-    }));
-    const userScripts = (userConfig.bootstrap?.scripts || []).map(script => ({
-      path: script,
-      source: 'user'
-    }));
+    const projectScripts = (projectConfig.bootstrap?.scripts || []).map((script) => {
+      if (typeof script === "string") {
+        return { path: script, source: "project" };
+      }
+      return { path: script.path, source: script.source || "project" };
+    });
+    const userScripts = (userConfig.bootstrap?.scripts || []).map((script) => {
+      if (typeof script === "string") {
+        return { path: script, source: "user" };
+      }
+      return { path: script.path, source: script.source || "user" };
+    });
 
     merged.bootstrap = {
       scripts: [...projectScripts, ...userScripts],
@@ -203,21 +272,25 @@ const mergeConfigs = (projectConfig, userConfig) => {
   return merged;
 };
 
-const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) => {
+export const resolveConfig = async (
+  config: WorkspaceConfig,
+  configDir: string,
+  { workspaceNameOverride }: { workspaceNameOverride?: string } = {},
+): Promise<ResolvedWorkspaceConfig> => {
   if (!config) {
     throw new Error("Invalid configuration");
   }
 
   const name = workspaceNameOverride || path.basename(configDir);
-  const imageTag = 'workspace:latest';
+  const imageTag = "workspace:latest";
   const containerName = `workspace-${name}`;
 
   const stateRoot = path.join(os.homedir(), ".workspaces", "state");
   const stateDir = path.join(stateRoot, name);
 
-  const repoRemote = (config.repo && config.repo.remote) || "";
-  const repoBranch = (config.repo && config.repo.branch) || "main";
-  const repoCloneArgs = (config.repo && config.repo.cloneArgs) || [];
+  const repoRemote = config.repo?.remote || "";
+  const repoBranch = config.repo?.branch || "main";
+  const repoCloneArgs = config.repo?.cloneArgs || [];
 
   const forwards = Array.isArray(config.forwards)
     ? config.forwards
@@ -225,12 +298,11 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
           if (typeof forward === "number") {
             return forward;
           }
-          // Support port ranges like "5000-5010" or "5000:5010"
           if (typeof forward === "string" && (forward.includes("-") || forward.includes(":"))) {
             const separator = forward.includes(":") ? ":" : "-";
             const [start, end] = forward.split(separator).map((s) => Number.parseInt(s.trim(), 10));
             if (!Number.isNaN(start) && !Number.isNaN(end) && start <= end && start > 0) {
-              const range = [];
+              const range: number[] = [];
               for (let port = start; port <= end; port++) {
                 range.push(port);
               }
@@ -238,27 +310,25 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
             }
             return null;
           }
-          // Support objects for backwards compatibility
           if (typeof forward === "object" && forward.internal) {
-            return Number.parseInt(forward.internal, 10);
+            return Number.parseInt(String(forward.internal), 10);
           }
           return null;
         })
-        .filter((port) => !Number.isNaN(port) && port > 0)
+        .filter((port): port is number => port != null && !Number.isNaN(port) && port > 0)
     : [];
 
-  const bootstrapScripts =
+  const bootstrapScripts: ResolvedBootstrapScript[] =
     config.bootstrap && Array.isArray(config.bootstrap.scripts)
-      ? config.bootstrap.scripts.map(script => {
-          if (typeof script === 'string') {
-            return { path: script, source: 'project' };
+      ? config.bootstrap.scripts.map((script) => {
+          if (typeof script === "string") {
+            return { path: script, source: "project" };
           }
-          return script;
+          return { path: script.path, source: script.source || "project" };
         })
       : [];
 
-  // Parse mount format: /host/path:/container/path[:ro|:rw]
-  const mounts = Array.isArray(config.mounts)
+  const mounts: ResolvedMount[] = Array.isArray(config.mounts)
     ? config.mounts
         .map((mount) => {
           if (typeof mount !== "string") return null;
@@ -266,7 +336,9 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
           const parts = mount.split(":");
           if (parts.length < 2) return null;
 
-          let source, target, mode;
+          let source: string;
+          let target: string;
+          let mode: string;
 
           if (parts.length === 2) {
             [source, target] = parts;
@@ -277,7 +349,6 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
               mode = "rw";
             }
           } else if (parts.length === 4) {
-            // Handle Windows paths like C:/path:/container/path:ro
             source = `${parts[0]}:${parts[1]}`;
             target = parts[2];
             mode = parts[3];
@@ -298,7 +369,7 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
 
           return { source, target, mode };
         })
-        .filter((mount) => mount !== null)
+        .filter((mount): mount is ResolvedMount => mount !== null)
     : [];
 
   const sshDir = path.join(stateDir, "ssh");
@@ -337,20 +408,4 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
   };
 };
 
-module.exports = {
-  DEFAULT_CONFIG_FILENAME,
-  USER_CONFIG_FILENAME,
-  TEMPLATE_SOURCE,
-  discoverRepoRoot,
-  findWorkspaceDir,
-  buildDefaultConfig,
-  writeConfig,
-  loadConfig,
-  resolveConfig,
-  configExists,
-  getUserConfigDir,
-  getUserConfigPath,
-  ensureUserConfig,
-  loadUserConfig,
-  mergeConfigs,
-};
+export { TEMPLATE_SOURCE };

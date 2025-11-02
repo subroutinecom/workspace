@@ -1,66 +1,33 @@
 #!/usr/bin/env node
 
-const { Command, InvalidOptionArgumentError } = require("commander");
-const path = require("path");
-const fs = require("fs");
-const os = require("os");
-const readline = require("readline");
-const {
+import path from "path";
+import fs from "fs";
+import os from "os";
+import { Command, InvalidOptionArgumentError } from "commander";
+import updateNotifier from "update-notifier";
+import pkg from "../package.json";
+import type { ResolvedWorkspaceConfig } from "./config";
+import type { WorkspaceState } from "./state";
+import type { Logger } from "./cli/ui";
+import {
   discoverRepoRoot,
-  findWorkspaceDir,
   buildDefaultConfig,
   writeConfig,
-  loadConfig,
-  resolveConfig,
   configExists,
   DEFAULT_CONFIG_FILENAME,
-  ensureUserConfig,
-  loadUserConfig,
-  mergeConfigs,
-} = require("./config");
-const { runCommand, runCommandStreaming, runCommandWithLogging, ensureDir, writeJson, sleep, ora } = require("./utils");
-const { getUserConfig } = require("./user-config");
-const { selectKeyForRepo, getKeyBasename } = require("./ssh");
-
-const createLogger = (verbose) => {
-  const spinner = verbose ? null : ora();
-
-  return {
-    start: (text) => {
-      if (spinner) {
-        spinner.start(text);
-      } else {
-        console.log(text);
-      }
-    },
-    update: (text) => {
-      if (spinner) {
-        spinner.text = text;
-      }
-    },
-    succeed: (text) => {
-      if (spinner) {
-        spinner.succeed(text);
-      } else {
-        console.log(text);
-      }
-    },
-    fail: (text) => {
-      if (spinner) {
-        spinner.fail(text);
-      }
-    },
-    info: (text) => {
-      if (spinner) {
-        spinner.info(text);
-      } else {
-        console.log(text);
-      }
-    },
-    isVerbose: () => verbose,
-  };
-};
-const {
+  TEMPLATE_SOURCE,
+} from "./config";
+import {
+  runCommand,
+  runCommandStreaming,
+  runCommandWithLogging,
+  ensureDir,
+  writeJson,
+} from "./utils";
+import type { CommandError } from "./utils";
+import { getUserConfig } from "./user-config";
+import { selectKeyForRepo, getKeyBasename } from "./ssh";
+import {
   imageExists,
   buildImage,
   containerExists,
@@ -77,14 +44,14 @@ const {
   createVolume,
   connectToNetwork,
   execInContainer,
-} = require("./docker");
-const { ensureWorkspaceState, removeWorkspaceState, listWorkspaceNames } = require("./state");
-const pkg = require("../package.json");
-const updateNotifier = require("update-notifier");
+} from "./docker";
+import { ensureWorkspaceState, removeWorkspaceState, listWorkspaceNames } from "./state";
+import { configureBuildxInContainer, ensureSharedBuildKit, waitForContainer, waitForDockerd } from "./buildkit";
+import { createLogger, confirmPrompt } from "./cli/ui";
+import { withConfig, getWorkspaceInfo, loadWorkspaceState } from "./workspace/context";
 
-// const notifier = updateNotifier({ pkg });
-const notifier = updateNotifier.default({
-  pkg: pkg,
+const notifier = updateNotifier({
+  pkg,
   updateCheckInterval: 0,
 });
 notifier.notify({
@@ -94,7 +61,7 @@ notifier.notify({
 const program = new Command();
 program.name("workspace").description("Self-contained CLI for Docker-in-Docker workspaces").version(pkg.version);
 
-const parseInteger = (value, dummyPrevious) => {
+const parseInteger = (value: string): number => {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) {
     throw new InvalidOptionArgumentError("Not a number.");
@@ -102,100 +69,51 @@ const parseInteger = (value, dummyPrevious) => {
   return parsed;
 };
 
-/**
- * Prompt user for confirmation
- * @param {string} message - Confirmation message
- * @returns {Promise<boolean>} true if user confirmed
- */
-const confirmPrompt = (message) => {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
+interface SshKeyInfo {
+  privateKey: string;
+  publicKey: string;
+  publicKeyPath: string;
+}
 
-    rl.question(`${message} (y/N): `, (answer) => {
-      rl.close();
-      resolve(answer.toLowerCase() === "y" || answer.toLowerCase() === "yes");
-    });
-  });
-};
+interface DockerRunOptions {
+  extraDockerArgs?: string[];
+}
 
-const withConfig = async (options = {}, workspaceName) => {
-  const configFilename = options.config || DEFAULT_CONFIG_FILENAME;
-
-  await ensureUserConfig();
-
-  const workspaceDir = await findWorkspaceDir(options);
-
-  const projectConfig = await loadConfig(workspaceDir, configFilename);
-  const userConfig = await loadUserConfig();
-
-  if (options.verbose) {
-    console.log("\n=== Configuration Loading ===");
-    console.log(`Project config dir: ${workspaceDir}`);
-    console.log(`Project config file: ${configFilename}`);
-    console.log("\n--- Project Config ---");
-    console.log(JSON.stringify(projectConfig, null, 2));
-    console.log("\n--- User Config (~/.workspaces/config.yml) ---");
-    console.log(JSON.stringify(userConfig, null, 2));
-  }
-
-  const raw = mergeConfigs(projectConfig, userConfig);
-
-  if (options.verbose) {
-    console.log("\n--- Merged Config ---");
-    console.log(JSON.stringify(raw, null, 2));
-    console.log("=== End Configuration Loading ===\n");
-  }
-
-  const resolved = await resolveConfig(raw, workspaceDir, {
-    workspaceNameOverride: workspaceName,
-  });
-
-  return { configDir: workspaceDir, raw, resolved };
-};
-
-/**
- * Get minimal workspace info without requiring config file.
- * Allows commands like stop, destroy, logs to work even when .workspace.yml is missing.
- */
-const getWorkspaceInfo = async (workspaceName, options = {}) => {
-  const containerName = `workspace-${workspaceName}`;
-  const stateDir = path.join(os.homedir(), ".workspaces", "state", workspaceName);
-  const keyPath = path.join(stateDir, "ssh", "id_ed25519");
-
-  let configInfo = null;
-  try {
-    configInfo = await withConfig(options, workspaceName);
-  } catch (err) {
-    // Config not found - that's okay for many commands
-  }
-
-  return {
-    name: workspaceName,
-    containerName,
-    keyPath,
-    stateDir,
-    configInfo,
+interface DockerInspectData {
+  State?: {
+    Running?: boolean;
+    Status?: string;
   };
+  Mounts?: Array<{
+    Source?: string;
+    Destination?: string;
+  }>;
+  NetworkSettings?: {
+    Networks?: Record<string, unknown>;
+  };
+}
+
+interface VolumeMapping {
+  home: string;
+  docker: string;
+  cache: string;
+}
+
+interface WorkspaceInspectData extends DockerInspectData {
+  Config?: {
+    Image?: string;
+  };
+}
+
+const isCommandError = (error: unknown): error is CommandError => {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "message" in error,
+  );
 };
 
-const loadWorkspaceState = async (workspaceName) => {
-  const STATE_FILE = path.join(os.homedir(), ".workspaces", "state", "state.json");
-  try {
-    const stateData = await fs.promises.readFile(STATE_FILE, "utf8");
-    const state = JSON.parse(stateData);
-    return state.workspaces[workspaceName] || null;
-  } catch (err) {
-    if (err.code === "ENOENT") {
-      return null;
-    }
-    throw err;
-  }
-};
-
-const ensureSshKey = async (resolved) => {
+const ensureSshKey = async (resolved: ResolvedWorkspaceConfig): Promise<SshKeyInfo> => {
   const { keyPath } = resolved.workspace.state;
   const keyDir = path.dirname(keyPath);
   await ensureDir(keyDir);
@@ -211,7 +129,10 @@ const ensureSshKey = async (resolved) => {
   };
 };
 
-const writeRuntimeMetadata = async (resolved, runtime) => {
+const writeRuntimeMetadata = async (
+  resolved: ResolvedWorkspaceConfig,
+  runtime: WorkspaceState,
+): Promise<void> => {
   const runtimeData = {
     workspace: {
       name: resolved.workspace.name,
@@ -233,7 +154,10 @@ const writeRuntimeMetadata = async (resolved, runtime) => {
   await writeJson(resolved.workspace.state.runtimeConfigPath, runtimeData);
 };
 
-const ensureImage = async (resolved, { rebuild = false, noCache = false } = {}) => {
+const ensureImage = async (
+  resolved: ResolvedWorkspaceConfig,
+  { rebuild = false, noCache = false }: { rebuild?: boolean; noCache?: boolean } = {},
+): Promise<void> => {
   const imageTag = resolved.workspace.imageTag;
   const buildContext = resolved.workspace.buildContext;
 
@@ -244,136 +168,18 @@ const ensureImage = async (resolved, { rebuild = false, noCache = false } = {}) 
   }
 };
 
-const waitForContainer = async (containerName, logger, timeoutMs = 15000) => {
-  logger.update("Waiting for container to be ready...");
-  const startTime = Date.now();
-  while (Date.now() - startTime < timeoutMs) {
-    try {
-      await runCommand("docker", ["exec", containerName, "true"]);
-      return;
-    } catch {
-      await sleep(500);
-    }
-  }
-  throw new Error(`Timed out waiting for container ${containerName} to become ready`);
-};
-
-const waitForDockerd = async (containerName, logger, timeoutMs = 30000) => {
-  logger.update("Waiting for Docker daemon...");
-  const startTime = Date.now();
-  while (Date.now() - startTime < timeoutMs) {
-    try {
-      await execInContainer(containerName, ["docker", "info"]);
-      return;
-    } catch {
-      await sleep(1000);
-    }
-  }
-  throw new Error(`Timed out waiting for Docker daemon in ${containerName} to become ready`);
-};
-
-/**
- * Ensure shared BuildKit infrastructure exists:
- * - Network: workspace-internal-buildnet
- * - Volume: workspace-internal-buildkit-cache
- * - BuildKit daemon: workspace-internal-buildkitd
- */
-const ensureSharedBuildKit = async (logger) => {
-  const networkName = "workspace-internal-buildnet";
-  const volumeName = "workspace-internal-buildkit-cache";
-  const buildkitdName = "workspace-internal-buildkitd";
-  const buildkitdPort = 1234;
-
-  logger.update("Setting up BuildKit infrastructure...");
-
-  if (!(await networkExists(networkName))) {
-    await createNetwork(networkName);
-  }
-
-  if (!(await volumeExists(volumeName))) {
-    await createVolume(volumeName);
-  }
-
-  const buildkitdExists = await containerExists(buildkitdName);
-  const buildkitdRunning = buildkitdExists && (await containerRunning(buildkitdName));
-
-  if (!buildkitdRunning) {
-    if (buildkitdExists) {
-      await startContainer(buildkitdName);
-    } else {
-      await createContainer([
-        "--detach",
-        "--name",
-        buildkitdName,
-        "--privileged",
-        "--network",
-        networkName,
-        "-v",
-        `${volumeName}:/var/lib/buildkit`,
-        "-p",
-        `127.0.0.1:${buildkitdPort}:${buildkitdPort}`,
-        "moby/buildkit:latest",
-        "--addr",
-        `tcp://0.0.0.0:${buildkitdPort}`,
-      ]);
-
-      await sleep(2000);
-    }
-  }
-
-  return {
-    networkName,
-    volumeName,
-    buildkitdName,
-    buildkitdPort,
-  };
-};
-
-/**
- * Configure docker buildx in a workspace container to use the shared BuildKit daemon.
- *
- * This makes the following commands use the shared cache automatically:
- * - docker buildx build (explicit buildx usage)
- * - docker build (when DOCKER_BUILDKIT=1, uses default buildx builder)
- * - docker compose build (when DOCKER_BUILDKIT=1, uses default buildx builder)
- * - docker compose up --build (same as above)
- */
-const configureBuildxInContainer = async (containerName, buildkitInfo, logger) => {
-  const builderName = "workspace-internal-builder";
-  const buildkitdEndpoint = `tcp://${buildkitInfo.buildkitdName}:${buildkitInfo.buildkitdPort}`;
-  const user = "workspace";
-
-  logger.update("Configuring buildx...");
-
-  try {
-    await execInContainer(containerName, ["docker", "buildx", "rm", builderName], { user });
-  } catch (err) {
-  }
-
-  try {
-    await execInContainer(
-      containerName,
-      ["docker", "buildx", "create", "--name", builderName, "--driver", "remote", buildkitdEndpoint, "--use"],
-      { user }
-    );
-  } catch (err) {
-    throw new Error(`Failed to create buildx builder: ${err.message}`);
-  }
-
-  try {
-    await execInContainer(containerName, ["docker", "buildx", "inspect", "--bootstrap"], { user });
-  } catch (err) {
-    throw new Error(`Failed to bootstrap buildx builder: ${err.message}`);
-  }
-};
-
-const computeVolumes = (containerName) => ({
+const computeVolumes = (containerName: string): VolumeMapping => ({
   home: `${containerName}-home`,
   docker: `${containerName}-docker`,
   cache: `${containerName}-cache`,
 });
 
-const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
+const assembleRunArgs = (
+  resolved: ResolvedWorkspaceConfig,
+  sshKeyInfo: SshKeyInfo,
+  runtime: WorkspaceState,
+  options: DockerRunOptions = {},
+): { runArgs: string[]; volumes: VolumeMapping } => {
   const runArgs = [
     "--detach",
     "--privileged",
@@ -387,7 +193,7 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
 
   const volumes = computeVolumes(resolved.workspace.containerName);
 
-  const addEnv = (key, value) => {
+  const addEnv = (key: string, value: unknown) => {
     if (value !== undefined && value !== null && value !== "") {
       runArgs.push("-e", `${key}=${value}`);
     }
@@ -450,13 +256,26 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   return { runArgs, volumes };
 };
 
-const runInitScript = async (resolved, logger) => {
-  const args = ["exec", "-u", "workspace", resolved.workspace.containerName, "/usr/local/bin/init-workspace.sh"];
+const runInitScript = async (resolved: ResolvedWorkspaceConfig, logger: Logger): Promise<void> => {
+  const args = ["exec", "-u", "workspace", resolved.workspace.containerName, "/usr/local/bin/workspace-internal", "init"];
 
   const logsDir = path.join(os.homedir(), ".workspaces", "logs");
   await ensureDir(logsDir);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
   const logFile = path.join(logsDir, `${resolved.workspace.name}-${timestamp}.log`);
+  const headerLines = [
+    `=== Workspace init started ${new Date().toISOString()} ===`,
+    `Workspace : ${resolved.workspace.name}`,
+    `Container : ${resolved.workspace.containerName}`,
+    `Image     : ${resolved.workspace.imageTag}`,
+    `ConfigDir : ${resolved.workspace.configDir}`,
+    `Repo      : ${resolved.workspace.repo.remote || "(none)"}`,
+    `Branch    : ${resolved.workspace.repo.branch}`,
+    `Forwards  : ${
+      resolved.workspace.forwards.length ? resolved.workspace.forwards.join(", ") : "(none)"
+    }`,
+  ];
+  fs.writeFileSync(logFile, `${headerLines.join("\n")}\n\n`, "utf8");
 
   try {
     await runCommandWithLogging("docker", args, {
@@ -472,11 +291,14 @@ const runInitScript = async (resolved, logger) => {
         }
       }
     });
-  } catch (err) {
-    if (err.logFile) {
-      err.message = `${err.message}\nSee logs: ${err.logFile}`;
+    fs.appendFileSync(logFile, `\n=== Workspace init completed ${new Date().toISOString()} ===\n`, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fs.appendFileSync(logFile, `\n=== Workspace init failed ${new Date().toISOString()} ===\n${message}\n`, "utf8");
+    if (isCommandError(error) && error.logFile) {
+      error.message = `${error.message}\nSee logs: ${error.logFile}`;
     }
-    throw err;
+    throw error;
   }
 };
 
@@ -506,12 +328,16 @@ program
     const writtenPath = await writeConfig(targetDir, config);
     console.log(`Created workspace config: ${writtenPath}`);
     console.log("");
+    const repo = config.repo ?? { remote: "", branch: "" };
     console.log("Configuration scaffold:");
     console.log("  repo:");
-    console.log(`    remote: ${config.repo.remote || "(none - add your git remote)"}`);
-    console.log(`    branch: ${config.repo.branch}`);
-    console.log(`  forwards:`);
-    console.log(`    - ${config.forwards.join("\n    - ")}`);
+    console.log(`    remote: ${repo.remote || "(none - add your git remote)"}`);
+    console.log(`    branch: ${repo.branch || "main"}`);
+    const forwardsList = config.forwards && config.forwards.length ? config.forwards : [3000];
+    console.log("  forwards:");
+    forwardsList.forEach((forward) => {
+      console.log(`    - ${forward}`);
+    });
     console.log("");
     console.log("Edit the config file to customize:");
     console.log("  - Add bootstrap scripts under 'bootstrap.scripts'");
@@ -526,7 +352,6 @@ program
   .description("Build the shared workspace Docker image")
   .option("--no-cache", "build without using Docker cache")
   .action(async (options) => {
-    const { TEMPLATE_SOURCE } = require("./config");
     const imageTag = "workspace:latest";
     console.log(`Building shared image ${imageTag}...`);
     await buildImage(imageTag, TEMPLATE_SOURCE, {
@@ -542,7 +367,7 @@ program
   .option("--rebuild", "force a rebuild of the workspace image before starting", false)
   .option("--no-cache", "rebuild image without cache (implies --rebuild)", false)
   .option("--force-recreate", "remove any existing container before starting", false)
-  .option("--no-init", "skip running init-workspace.sh after start", false)
+  .option("--no-init", "skip running workspace-internal init after start", false)
   .option("-v, --verbose", "show detailed output instead of spinner", false)
   .option("--path <path>", "use workspace configuration from a specific path")
   .action(async (workspaceName, options) => {
@@ -760,8 +585,9 @@ program
         } else {
           console.log("Retained Docker volumes as requested.");
         }
-      } catch (err) {
-        console.error(`Warning: Error during cleanup: ${err.message}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Warning: Error during cleanup: ${message}`);
         console.log("Continuing with state cleanup...");
       }
       console.log("Workspace removed.");
@@ -780,7 +606,7 @@ program
     const workspaceSet = new Set();
 
     // Search for directories containing .workspace.yml
-    const findWorkspaces = async (dir, maxDepth = 3, currentDepth = 0) => {
+    const findWorkspaces = async (dir: string, maxDepth = 3, currentDepth = 0): Promise<void> => {
       if (currentDepth > maxDepth) return;
 
       try {
@@ -839,22 +665,19 @@ program
       return;
     }
 
-    let runtime = null;
-    if (wsInfo.configInfo) {
-      runtime = await ensureWorkspaceState(wsInfo.configInfo.resolved);
-    } else {
-      runtime = await loadWorkspaceState(wsInfo.name);
-    }
+    const runtime: WorkspaceState | null = wsInfo.configInfo
+      ? await ensureWorkspaceState(wsInfo.configInfo.resolved)
+      : await loadWorkspaceState(wsInfo.name);
 
-    const container = info[0];
-    const running = container.State.Running;
+    const container = info[0] as WorkspaceInspectData;
+    const running = Boolean(container.State?.Running);
     console.log(`Container : ${wsInfo.containerName}`);
-    console.log(`Status    : ${container.State.Status}`);
-    console.log(`Image     : ${container.Config.Image}`);
-    if (runtime && runtime.sshPort) {
+    console.log(`Status    : ${container.State?.Status ?? "unknown"}`);
+    console.log(`Image     : ${container.Config?.Image ?? "unknown"}`);
+    if (runtime?.sshPort) {
       console.log(`SSH port  : ${runtime.sshPort}`);
     }
-    if (runtime && runtime.forwards && runtime.forwards.length) {
+    if (runtime?.forwards?.length) {
       runtime.forwards.forEach((port) => {
         console.log(`Forward   : ${port} -> ${port}`);
       });
@@ -863,7 +686,11 @@ program
       console.log(`Remote    : ${wsInfo.configInfo.resolved.workspace.repo.remote} (${wsInfo.configInfo.resolved.workspace.repo.branch})`);
     }
     console.log("");
-    console.log(running ? `Use 'workspace shell ${workspaceName}' to connect.` : `Start the workspace with 'workspace start ${workspaceName}'.`);
+    console.log(
+      running
+        ? `Use 'workspace shell ${workspaceName}' to connect.`
+        : `Start the workspace with 'workspace start ${workspaceName}'.`,
+    );
   });
 
 program
@@ -883,7 +710,7 @@ program
       runtime = await loadWorkspaceState(wsInfo.name);
     }
 
-    const formatPortRanges = (ports) => {
+    const formatPortRanges = (ports: number[] | undefined): string => {
       if (!ports || !ports.length) return "none";
       const sorted = [...ports].sort((a, b) => a - b);
       const ranges = [];
@@ -1006,7 +833,7 @@ program
 
     baseArgs.push("workspace@localhost");
 
-    const formatPortRanges = (ports) => {
+    const formatPortRanges = (ports: number[]): string => {
       if (!ports.length) return "";
       const sorted = [...ports].sort((a, b) => a - b);
       const ranges = [];
@@ -1087,13 +914,15 @@ program
       try {
         await check.fn();
         console.log("ok");
-      } catch (err) {
+      } catch (error) {
         failures += 1;
         console.log("failed");
-        if (err.stderr) {
-          console.log(err.stderr.trim());
+        if (isCommandError(error) && error.stderr) {
+          console.log(error.stderr.trim());
+        } else if (error instanceof Error) {
+          console.log(error.message);
         } else {
-          console.log(err.message);
+          console.log(String(error));
         }
       }
     }
@@ -1161,7 +990,7 @@ program
         console.log("BuildKit daemon restarted.");
       } else {
         console.log("BuildKit daemon does not exist. Starting it...");
-        await ensureSharedBuildKit();
+        await ensureSharedBuildKit(createLogger(false));
         console.log("BuildKit daemon started.");
       }
       return;
@@ -1192,9 +1021,12 @@ program
 
       if (daemonRunning) {
         const inspect = await inspectContainer(buildkitdName);
-        if (inspect && inspect.length > 0) {
-          const networks = Object.keys(inspect[0].NetworkSettings.Networks || {});
+        const inspectData = inspect && inspect.length > 0 ? (inspect[0] as DockerInspectData) : null;
+        if (inspectData?.NetworkSettings?.Networks) {
+          const networks = Object.keys(inspectData.NetworkSettings.Networks);
           console.log(`  Networks: ${networks.join(", ")}`);
+        } else if (inspectData) {
+          console.log("  Networks: unavailable");
         }
       }
     } else {
@@ -1217,8 +1049,9 @@ program
     try {
       await runCommandStreaming("npm", ["install", "-g", `${packageName}@latest`]);
       console.log("\nUpdate complete!");
-    } catch (err) {
-      console.error("Update failed:", err.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Update failed:", message);
       process.exitCode = 1;
     }
   });

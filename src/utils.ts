@@ -1,15 +1,51 @@
-const { spawn } = require("child_process");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-const fsExtra = require("fs-extra");
-const ora = require("ora");
+import { spawn } from "child_process";
+import fs from "fs";
+import path from "path";
+import fsExtra from "fs-extra";
+import ora from "ora";
 
-const runCommand = (command, args = [], options = {}) =>
+export interface CommandOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface StreamingCommandOptions extends CommandOptions {
+  quiet?: boolean;
+}
+
+export interface LoggingCommandOptions extends CommandOptions {
+  logFile?: string;
+  onOutput?: (data: string) => void;
+}
+
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+}
+
+export interface CommandError extends Error {
+  code?: number;
+  stdout?: string;
+  stderr?: string;
+  logFile?: string;
+}
+
+const normalizeEnv = (env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  if (!env) {
+    return process.env;
+  }
+  return { ...process.env, ...env };
+};
+
+export const runCommand = (
+  command: string,
+  args: string[] = [],
+  options: CommandOptions = {},
+): Promise<CommandResult> =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: options.env ? { ...process.env, ...options.env } : process.env,
+      env: normalizeEnv(options.env),
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -32,8 +68,8 @@ const runCommand = (command, args = [], options = {}) =>
       if (code === 0) {
         resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
       } else {
-        const error = new Error(`Command failed: ${command} ${args.join(" ")}`);
-        error.code = code;
+        const error: CommandError = new Error(`Command failed: ${command} ${args.join(" ")}`);
+        error.code = code ?? undefined;
         error.stdout = stdout;
         error.stderr = stderr;
         reject(error);
@@ -41,17 +77,21 @@ const runCommand = (command, args = [], options = {}) =>
     });
   });
 
-const runCommandStreaming = (command, args = [], options = {}) =>
+export const runCommandStreaming = (
+  command: string,
+  args: string[] = [],
+  options: StreamingCommandOptions = {},
+): Promise<void> =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: options.env ? { ...process.env, ...options.env } : process.env,
+      env: normalizeEnv(options.env),
       stdio: options.quiet ? ["ignore", "pipe", "pipe"] : "inherit",
     });
 
     let stderr = "";
 
-    if (options.quiet) {
+    if (options.quiet && child.stderr) {
       child.stderr.on("data", (chunk) => {
         stderr += chunk.toString();
       });
@@ -65,7 +105,7 @@ const runCommandStreaming = (command, args = [], options = {}) =>
       if (code === 0) {
         resolve();
       } else {
-        const error = new Error(`Command failed: ${command} ${args.join(" ")}`);
+        const error: CommandError = new Error(`Command failed: ${command} ${args.join(" ")}`);
         if (options.quiet && stderr) {
           error.stderr = stderr;
         }
@@ -74,21 +114,21 @@ const runCommandStreaming = (command, args = [], options = {}) =>
     });
   });
 
-const runCommandWithLogging = (command, args = [], options = {}) =>
+export const runCommandWithLogging = (
+  command: string,
+  args: string[] = [],
+  options: LoggingCommandOptions = {},
+): Promise<CommandResult> =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: options.env ? { ...process.env, ...options.env } : process.env,
+      env: normalizeEnv(options.env),
       stdio: ["ignore", "pipe", "pipe"],
     });
 
     let stdout = "";
     let stderr = "";
-    let logStream = null;
-
-    if (options.logFile) {
-      logStream = require("fs").createWriteStream(options.logFile);
-    }
+    const logStream = options.logFile ? fs.createWriteStream(options.logFile, { flags: "a" }) : null;
 
     child.stdout.on("data", (chunk) => {
       const data = chunk.toString();
@@ -114,8 +154,8 @@ const runCommandWithLogging = (command, args = [], options = {}) =>
       if (code === 0) {
         resolve({ stdout, stderr });
       } else {
-        const error = new Error(`Command failed: ${command} ${args.join(" ")}`);
-        error.code = code;
+        const error: CommandError = new Error(`Command failed: ${command} ${args.join(" ")}`);
+        error.code = code ?? undefined;
         error.stdout = stdout;
         error.stderr = stderr;
         error.logFile = options.logFile;
@@ -124,40 +164,34 @@ const runCommandWithLogging = (command, args = [], options = {}) =>
     });
   });
 
-const ensureDir = async (dirPath) => fsExtra.mkdirp(dirPath);
+export const ensureDir = async (dirPath: string): Promise<void> => {
+  await fsExtra.mkdirp(dirPath);
+};
 
-const writeJson = async (filePath, data) => {
+export const writeJson = async (filePath: string, data: unknown): Promise<void> => {
   await ensureDir(path.dirname(filePath));
   await fsExtra.writeJson(filePath, data, { spaces: 2 });
 };
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+export const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
-const getListeningPorts = async () => {
+export const getListeningPorts = async (): Promise<Set<number>> => {
   try {
     const { stdout } = await runCommand("ss", ["-tlnH"]);
-    const ports = new Set();
+    const ports = new Set<number>();
 
     for (const line of stdout.split("\n")) {
       const match = line.match(/:(\d+)\s/);
       if (match) {
-        ports.add(parseInt(match[1], 10));
+        ports.add(Number.parseInt(match[1], 10));
       }
     }
 
     return ports;
-  } catch (err) {
+  } catch {
     return new Set();
   }
 };
 
-module.exports = {
-  runCommand,
-  runCommandStreaming,
-  runCommandWithLogging,
-  ensureDir,
-  writeJson,
-  sleep,
-  getListeningPorts,
-  ora,
-};
+export { ora };

@@ -1,8 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { createRequire } from "module";
+import path from "path";
+import fs from "fs";
 
 const require = createRequire(import.meta.url);
-const { matchRepoToKey, selectKeyForRepo, selectDefaultKey } = require("../src/ssh.js");
+const projectRoot = path.resolve(__dirname, "..");
+const distModule = path.join(projectRoot, "dist/ssh.js");
+const srcModule = path.join(projectRoot, "src/ssh.js");
+const modulePath = fs.existsSync(distModule) ? distModule : srcModule;
+const { matchRepoToKey, selectKeyForRepo, selectDefaultKey } = require(modulePath);
 
 describe("SSH Key Selection", () => {
   describe("matchRepoToKey", () => {

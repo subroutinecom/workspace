@@ -1,11 +1,12 @@
 {
   "name": "@subroutinecom/workspace",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Self-contained CLI for spinning up Docker-in-Docker workspaces with SSH and proxy helpers.",
   "bin": {
-    "workspace": "./src/index.js"
+    "workspace": "./dist/index.js"
   },
   "scripts": {
+    "build": "rm -rf ./dist && tsc",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -21,6 +22,11 @@
     "yaml": "^2.3.4"
   },
   "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^22.8.1",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/update-notifier": "^6.0.8",
+    "typescript": "^5.6.3",
     "vitest": "^4.0.6"
   },
   "repository": {

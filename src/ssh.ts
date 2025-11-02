@@ -1,19 +1,18 @@
-#!/usr/bin/env node
-
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-const { spawnSync } = require("child_process");
+import fs from "fs";
+import path from "path";
+import os from "os";
+import { spawnSync } from "child_process";
+import type { ValidatedUserConfig } from "./user-config";
 
 const SSH_DIR = path.join(os.homedir(), ".ssh");
 
-function discoverSshKeys() {
+export const discoverSshKeys = (): string[] => {
   if (!fs.existsSync(SSH_DIR)) {
     return [];
   }
 
   const files = fs.readdirSync(SSH_DIR);
-  const keys = [];
+  const keys: string[] = [];
 
   for (const file of files) {
     if (file.endsWith(".pub")) continue;
@@ -29,15 +28,15 @@ function discoverSshKeys() {
       if (content.includes("PRIVATE KEY")) {
         keys.push(fullPath);
       }
-    } catch (err) {
+    } catch {
       continue;
     }
   }
 
   return keys;
-}
+};
 
-function getKeysFromAgent() {
+export const getKeysFromAgent = (): string[] => {
   const agentSocket = process.env.SSH_AUTH_SOCK;
   if (!agentSocket || !fs.existsSync(agentSocket)) {
     return [];
@@ -48,7 +47,7 @@ function getKeysFromAgent() {
     return [];
   }
 
-  const keys = [];
+  const keys: string[] = [];
   const lines = result.stdout.trim().split("\n");
 
   for (const line of lines) {
@@ -64,9 +63,19 @@ function getKeysFromAgent() {
   }
 
   return keys;
-}
+};
 
-function selectDefaultKey(userConfig) {
+const matchPattern = (url: string, pattern: string): boolean => {
+  if (!pattern.includes("*")) {
+    return url === pattern;
+  }
+
+  const regexPattern = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  const regex = new RegExp(`^${regexPattern}$`);
+  return regex.test(url);
+};
+
+export const selectDefaultKey = (userConfig: ValidatedUserConfig): string | null => {
   if (userConfig.ssh?.defaultKey) {
     return userConfig.ssh.defaultKey;
   }
@@ -97,60 +106,46 @@ function selectDefaultKey(userConfig) {
   }
 
   return null;
-}
+};
 
-function matchRepoToKey(repoUrl, userConfig) {
+export const matchRepoToKey = (
+  repoUrl: string | null | undefined,
+  userConfig: ValidatedUserConfig,
+): string | null => {
   if (!repoUrl || !userConfig.ssh?.repos) {
     return null;
   }
 
   const repos = userConfig.ssh.repos;
 
-  if (repos[repoUrl]) {
+  if (repos && repos[repoUrl]) {
     return repos[repoUrl];
   }
 
-  for (const [pattern, keyPath] of Object.entries(repos)) {
-    if (matchPattern(repoUrl, pattern)) {
-      return keyPath;
+  if (repos) {
+    for (const [pattern, keyPath] of Object.entries(repos)) {
+      if (matchPattern(repoUrl, pattern)) {
+        return keyPath;
+      }
     }
   }
 
   return null;
-}
+};
 
-function matchPattern(url, pattern) {
-  if (!pattern.includes("*")) {
-    return url === pattern;
-  }
-
-  const regexPattern = pattern
-    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, ".*");
-
-  const regex = new RegExp(`^${regexPattern}$`);
-  return regex.test(url);
-}
-
-function selectKeyForRepo(repoUrl, userConfig) {
+export const selectKeyForRepo = (
+  repoUrl: string | null | undefined,
+  userConfig: ValidatedUserConfig,
+): string | null => {
   const repoKey = matchRepoToKey(repoUrl, userConfig);
   if (repoKey) {
     return repoKey;
   }
 
   return selectDefaultKey(userConfig);
-}
+};
 
-function getKeyBasename(keyPath) {
+export const getKeyBasename = (keyPath: string | null | undefined): string | null => {
   if (!keyPath) return null;
   return path.basename(keyPath);
-}
-
-module.exports = {
-  discoverSshKeys,
-  getKeysFromAgent,
-  selectDefaultKey,
-  matchRepoToKey,
-  selectKeyForRepo,
-  getKeyBasename,
 };

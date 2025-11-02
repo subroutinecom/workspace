@@ -1,38 +1,50 @@
-const path = require("path");
-const os = require("os");
-const fsExtra = require("fs-extra");
-const lockfile = require("proper-lockfile");
-const { getListeningPorts } = require("./utils");
+import path from "path";
+import os from "os";
+import fsExtra from "fs-extra";
+import lockfile from "proper-lockfile";
+import { getListeningPorts } from "./utils";
+import type { ResolvedWorkspaceConfig } from "./config";
+
+export interface WorkspaceState {
+  sshPort: number;
+  forwards: number[];
+  configDir: string;
+  selectedKey?: string | null;
+}
+
+interface State {
+  workspaces: Record<string, WorkspaceState>;
+}
 
 const STATE_FILE = path.join(os.homedir(), ".workspaces", "state", "state.json");
-const DEFAULT_STATE = {
+const DEFAULT_STATE: State = {
   workspaces: {},
 };
 const SSH_PORT_START = 2300;
 
-const loadState = async () => {
+const loadState = async (): Promise<State> => {
   try {
     return await fsExtra.readJson(STATE_FILE);
   } catch (err) {
-    if (err.code === "ENOENT") {
-      return { ...DEFAULT_STATE };
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { workspaces: {} };
     }
     throw err;
   }
 };
 
-const saveState = async (state) => {
+const saveState = async (state: State): Promise<void> => {
   await fsExtra.ensureDir(path.dirname(STATE_FILE));
   await fsExtra.writeJson(STATE_FILE, state, { spaces: 2 });
 };
 
-const withLock = async (fn) => {
+const withLock = async <T>(fn: () => Promise<T>): Promise<T> => {
   await fsExtra.ensureDir(path.dirname(STATE_FILE));
   if (!(await fsExtra.pathExists(STATE_FILE))) {
     await saveState(DEFAULT_STATE);
   }
 
-  let release;
+  let release: (() => Promise<void>) | undefined;
   try {
     release = await lockfile.lock(STATE_FILE, {
       retries: {
@@ -50,9 +62,9 @@ const withLock = async (fn) => {
   }
 };
 
-const findAvailableSshPort = async (state) => {
+const findAvailableSshPort = async (state: State): Promise<number> => {
   const allocatedPorts = new Set(
-    Object.values(state.workspaces || {}).map(ws => ws.sshPort)
+    Object.values(state.workspaces || {}).map((ws) => ws.sshPort),
   );
 
   const listeningPorts = await getListeningPorts();
@@ -63,12 +75,14 @@ const findAvailableSshPort = async (state) => {
     if (!allocatedPorts.has(candidatePort) && !listeningPorts.has(candidatePort)) {
       return candidatePort;
     }
-    candidatePort++;
+    candidatePort += 1;
   }
 };
 
-const ensureWorkspaceState = async (resolved) => {
-  return await withLock(async () => {
+export const ensureWorkspaceState = async (
+  resolved: ResolvedWorkspaceConfig,
+): Promise<WorkspaceState> => {
+  return withLock(async () => {
     const state = await loadState();
     const name = resolved.workspace.name;
 
@@ -92,11 +106,12 @@ const ensureWorkspaceState = async (resolved) => {
       sshPort: workspaceState.sshPort,
       forwards: workspaceState.forwards,
       configDir: workspaceState.configDir,
+      selectedKey: workspaceState.selectedKey ?? null,
     };
   });
 };
 
-const removeWorkspaceState = async (workspaceName) => {
+export const removeWorkspaceState = async (workspaceName: string): Promise<void> => {
   await withLock(async () => {
     const state = await loadState();
     if (state.workspaces[workspaceName]) {
@@ -105,20 +120,13 @@ const removeWorkspaceState = async (workspaceName) => {
     }
   });
 
-  // Remove the workspace state directory (outside lock since it's a separate operation)
   const stateDir = path.join(os.homedir(), ".workspaces", "state", workspaceName);
   if (await fsExtra.pathExists(stateDir)) {
     await fsExtra.remove(stateDir);
   }
 };
 
-const listWorkspaceNames = async () => {
+export const listWorkspaceNames = async (): Promise<string[]> => {
   const state = await loadState();
   return Object.keys(state.workspaces || {});
-};
-
-module.exports = {
-  ensureWorkspaceState,
-  removeWorkspaceState,
-  listWorkspaceNames,
 };

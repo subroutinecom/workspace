@@ -13,7 +13,11 @@ const __dirname = path.dirname(__filename);
 
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
 const TEST_WORKSPACES_DIR = path.join("/tmp", "workspace-test-workspaces");
-const WORKSPACE_CLI = path.join(PROJECT_ROOT, "src/index.js");
+const DIST_CLI = path.join(PROJECT_ROOT, "dist/index.js");
+if (!fs.existsSync(DIST_CLI)) {
+  throw new Error("dist/index.js not found. Run `npm run build` before executing tests.");
+}
+const WORKSPACE_CLI = DIST_CLI;
 
 /**
  * Generate a unique test workspace name with timestamp
@@ -140,10 +144,11 @@ function startWorkspace(name, options = {}) {
 
   const workspaceDir = path.join(TEST_WORKSPACES_DIR, name);
   if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {
-    return execSync(
-      `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} ${args.join(" ")}`,
-      { stdio: "inherit", encoding: "utf8", shell: "/bin/bash" }
-    );
+    return execSync(`cd ${workspaceDir} && node ${WORKSPACE_CLI} ${args.join(" ")}`, {
+      stdio: "inherit",
+      encoding: "utf8",
+      shell: "/bin/bash",
+    });
   }
 
   throw new Error(`Workspace ${name} not found at ${workspaceDir}`);
@@ -157,10 +162,11 @@ function stopWorkspace(name) {
   try {
     const workspaceDir = path.join(TEST_WORKSPACES_DIR, name);
     if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {
-      return execSync(
-        `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} stop ${name}`,
-        { stdio: "inherit", encoding: "utf8", shell: "/bin/bash" }
-      );
+      return execSync(`cd ${workspaceDir} && node ${WORKSPACE_CLI} stop ${name}`, {
+        stdio: "inherit",
+        encoding: "utf8",
+        shell: "/bin/bash",
+      });
     }
   } catch (err) {
     // Ignore errors if workspace is already stopped
@@ -179,10 +185,11 @@ function destroyWorkspace(name) {
     // First try to use workspace command from workspace directory
     const workspaceDir = path.join(TEST_WORKSPACES_DIR, name);
     if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {
-      return execSync(
-        `cd ${workspaceDir} && node ${path.join(__dirname, "../../src/index.js")} destroy ${name} --force`,
-        { stdio: "pipe", encoding: "utf8", shell: "/bin/bash" }
-      );
+      return execSync(`cd ${workspaceDir} && node ${WORKSPACE_CLI} destroy ${name} --force`, {
+        stdio: "pipe",
+        encoding: "utf8",
+        shell: "/bin/bash",
+      });
     }
   } catch (err) {
     // Ignore and fall through to docker cleanup
