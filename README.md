@@ -53,7 +53,7 @@ mounts:
 ```yaml
 bootstrap:
   scripts:
-    - userscripts  # Directory: runs all executable files alphabetically
+    - userscripts # Directory: runs all executable files alphabetically
     # Or specify individual scripts:
     # - userscripts/setup.sh
     # - custom/my-script.sh
@@ -102,25 +102,6 @@ Commands run from project directory use that workspace. Or specify name from any
 - **Tools**: Git, GitHub CLI, ripgrep, fd-find, jq, curl, wget, rsync
 - **User**: `workspace` with passwordless sudo
 
-## Key Features
-
-**Docker-in-Docker**: Full Docker available inside container. Shared BuildKit daemon across workspaces for efficient layer caching.
-
-**SSH Access**: Real SSH with agent forwarding, not `docker exec`. Works with VS Code Remote, SSH tunneling, etc.
-
-**Persistence**: Named volumes survive container restart. Home directory, Docker storage, and caches all persistent.
-
-**Bootstrap Automation**: Run setup scripts on initialization. Project-specific scripts + global user scripts.
-
-**Port Forwarding**: SSH tunnels for accessing services. Declarative in config, automatic setup.
-
-**Mount Points**:
-
-- `/workspace/source` - Project directory (read-only)
-- `/host/home` - Your home directory (read-only)
-- `/workspace/userconfig` - User config directory (`~/.workspaces/`)
-- Custom mounts from config
-
 ## User Scripts
 
 Add executable scripts to `~/.workspaces/userscripts/` - they run automatically in all workspaces:
@@ -129,7 +110,7 @@ Add executable scripts to `~/.workspaces/userscripts/` - they run automatically 
 # ~/.workspaces/config.yml (auto-created on first run)
 bootstrap:
   scripts:
-    - userscripts  # Runs all executable files in directory
+    - userscripts # Runs all executable files in directory
 ```
 
 Example script:
