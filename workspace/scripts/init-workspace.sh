@@ -118,6 +118,36 @@ PY
 }
 
 configure_shell_helpers() {
+  if ! grep -q "ssh_agent_env" "${WORKSPACE_HOME}/.profile" 2>/dev/null; then
+    {
+      echo ""
+      echo "# SSH agent"
+      echo "if [ -f ~/.ssh_agent_env ]; then"
+      echo "  . ~/.ssh_agent_env"
+      echo "fi"
+    } >>"${WORKSPACE_HOME}/.profile"
+  fi
+
+  if ! grep -q "ssh_agent_env" "${WORKSPACE_HOME}/.bashrc" 2>/dev/null; then
+    {
+      echo ""
+      echo "# SSH agent"
+      echo "if [[ -f ~/.ssh_agent_env ]]; then"
+      echo "  source ~/.ssh_agent_env"
+      echo "fi"
+    } >>"${WORKSPACE_HOME}/.bashrc"
+  fi
+
+  if [[ -f "${WORKSPACE_HOME}/.zshrc" ]] && ! grep -q "ssh_agent_env" "${WORKSPACE_HOME}/.zshrc" 2>/dev/null; then
+    {
+      echo ""
+      echo "# SSH agent"
+      echo "if [[ -f ~/.ssh_agent_env ]]; then"
+      echo "  source ~/.ssh_agent_env"
+      echo "fi"
+    } >>"${WORKSPACE_HOME}/.zshrc"
+  fi
+
   if ! grep -q "GIT_SSH_COMMAND" "${WORKSPACE_HOME}/.bashrc" 2>/dev/null; then
     {
       echo ""
