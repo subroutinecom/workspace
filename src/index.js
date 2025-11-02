@@ -513,7 +513,7 @@ program
   .option("--no-cache", "rebuild image without cache (implies --rebuild)", false)
   .option("--force-recreate", "remove any existing container before starting", false)
   .option("--no-init", "skip running init-workspace.sh after start", false)
-  .option("--verbose", "show detailed output instead of spinner", false)
+  .option("-v, --verbose", "show detailed output instead of spinner", false)
   .option("--path <path>", "use workspace configuration from a specific path")
   .action(async (workspaceName, options) => {
     const wsInfo = await getWorkspaceInfo(workspaceName, options);
@@ -530,7 +530,8 @@ program
         logger.start(`Starting workspace '${workspaceName}'...`);
 
         try {
-          await startContainer(wsInfo.containerName);
+          logger.update("Starting Docker container...");
+          await startContainer(wsInfo.containerName, { quiet: !options.verbose });
           await waitForDockerd(wsInfo.containerName, logger);
           const buildkitInfo = await ensureSharedBuildKit(logger);
           await connectToNetwork(wsInfo.containerName, buildkitInfo.networkName);
@@ -589,8 +590,8 @@ program
           console.log(`Connect with: ${cliHint}`);
           return;
         } else {
-          logger.update("Starting container...");
-          await startContainer(resolved.workspace.containerName);
+          logger.update("Starting Docker container...");
+          await startContainer(resolved.workspace.containerName, { quiet: !options.verbose });
           await waitForDockerd(resolved.workspace.containerName, logger);
           await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
           await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo, logger);
@@ -607,8 +608,8 @@ program
       }
 
       const { runArgs, volumes } = assembleRunArgs(resolved, sshKeyInfo, runtime, options);
-      logger.update("Creating container...");
-      await createContainer(runArgs);
+      logger.update("Creating Docker container...");
+      await createContainer(runArgs, { quiet: !options.verbose });
 
       await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
 

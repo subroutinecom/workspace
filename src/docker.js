@@ -50,11 +50,13 @@ const containerRunning = async (name) => {
 };
 
 const createContainer = async (args, options = {}) => {
-  await dockerCommandStreaming(["run", ...args], { quiet: true, ...options });
+  const quiet = options.quiet !== false;
+  await dockerCommandStreaming(["run", ...args], { quiet, ...options });
 };
 
-const startContainer = async (name) => {
-  await dockerCommandStreaming(["start", name], { quiet: true });
+const startContainer = async (name, options = {}) => {
+  const quiet = options.quiet !== false;
+  await dockerCommandStreaming(["start", name], { quiet });
 };
 
 const stopContainer = async (name) => {

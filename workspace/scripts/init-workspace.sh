@@ -6,10 +6,6 @@
 set -euo pipefail
 
 log() {
-  printf "[workspace:init] %s\n" "$*"
-}
-
-status() {
   printf "%s\n" "$*"
 }
 
@@ -51,7 +47,7 @@ ensure_known_host() {
     chmod 644 "${WORKSPACE_HOME}/.ssh/known_hosts"
     if ! ssh-keygen -F "${host}" >/dev/null 2>&1; then
       log "Adding ${host} to known_hosts."
-      ssh-keyscan -H "${host}" >> "${WORKSPACE_HOME}/.ssh/known_hosts" 2>/dev/null || true
+      ssh-keyscan -H "${host}" >>"${WORKSPACE_HOME}/.ssh/known_hosts" 2>/dev/null || true
     fi
   fi
 }
@@ -61,8 +57,6 @@ clone_repository() {
     log "No repository URL configured. Skipping clone."
     return
   fi
-
-  status "Cloning repository..."
 
   # Read clone args from runtime config if available
   local clone_args=()
@@ -125,7 +119,7 @@ configure_shell_helpers() {
       echo ""
       echo "# Workspace Git configuration"
       echo "export GIT_SSH_COMMAND=\"ssh -F ~/.ssh/config\""
-    } >> "${WORKSPACE_HOME}/.bashrc"
+    } >>"${WORKSPACE_HOME}/.bashrc"
   fi
 
   if [[ -f "${WORKSPACE_HOME}/.zshrc" ]] && ! grep -q "GIT_SSH_COMMAND" "${WORKSPACE_HOME}/.zshrc" 2>/dev/null; then
@@ -133,7 +127,7 @@ configure_shell_helpers() {
       echo ""
       echo "# Workspace Git configuration"
       echo "export GIT_SSH_COMMAND=\"ssh -F ~/.ssh/config\""
-    } >> "${WORKSPACE_HOME}/.zshrc"
+    } >>"${WORKSPACE_HOME}/.zshrc"
   fi
 
   if ! grep -q ".npm-global/bin" "${WORKSPACE_HOME}/.bashrc" 2>/dev/null; then
@@ -141,7 +135,7 @@ configure_shell_helpers() {
       echo ""
       echo "# npm global packages"
       echo "export PATH=\"\$HOME/.npm-global/bin:\$PATH\""
-    } >> "${WORKSPACE_HOME}/.bashrc"
+    } >>"${WORKSPACE_HOME}/.bashrc"
   fi
 
   if [[ -f "${WORKSPACE_HOME}/.zshrc" ]] && ! grep -q ".npm-global/bin" "${WORKSPACE_HOME}/.zshrc" 2>/dev/null; then
@@ -149,7 +143,7 @@ configure_shell_helpers() {
       echo ""
       echo "# npm global packages"
       echo "export PATH=\"\$HOME/.npm-global/bin:\$PATH\""
-    } >> "${WORKSPACE_HOME}/.zshrc"
+    } >>"${WORKSPACE_HOME}/.zshrc"
   fi
 }
 
@@ -205,10 +199,9 @@ install_lazyvim() {
 
 install_dev_tools() {
   log "Installing latest development tools..."
-  status "Installing development tools..."
 
   # Install Claude Code
-  if ! command -v claude &> /dev/null; then
+  if ! command -v claude &>/dev/null; then
     log "Installing Claude Code..."
     if curl -fsSL https://claude.ai/install.sh | bash; then
       log "✓ Claude Code installed successfully."
@@ -225,15 +218,15 @@ install_dev_tools() {
   fi
 
   # Install opencode with correct architecture
-  if ! command -v opencode &> /dev/null; then
+  if ! command -v opencode &>/dev/null; then
     log "Installing opencode..."
     ARCH=$(dpkg --print-architecture)
     if [ "$ARCH" = "amd64" ]; then OPENCODE_ARCH="x64"; else OPENCODE_ARCH="arm64"; fi
-    if curl -fsSL "https://github.com/sst/opencode/releases/latest/download/opencode-linux-${OPENCODE_ARCH}.zip" -o /tmp/opencode.zip \
-      && unzip -q /tmp/opencode.zip -d /tmp/opencode \
-      && sudo mv /tmp/opencode/opencode /usr/local/bin/opencode \
-      && sudo chmod +x /usr/local/bin/opencode \
-      && rm -rf /tmp/opencode.zip /tmp/opencode; then
+    if curl -fsSL "https://github.com/sst/opencode/releases/latest/download/opencode-linux-${OPENCODE_ARCH}.zip" -o /tmp/opencode.zip &&
+      unzip -q /tmp/opencode.zip -d /tmp/opencode &&
+      sudo mv /tmp/opencode/opencode /usr/local/bin/opencode &&
+      sudo chmod +x /usr/local/bin/opencode &&
+      rm -rf /tmp/opencode.zip /tmp/opencode; then
       log "✓ opencode installed successfully."
     else
       log "WARNING: Failed to install opencode."
@@ -242,11 +235,11 @@ install_dev_tools() {
     log "opencode already installed, updating..."
     ARCH=$(dpkg --print-architecture)
     if [ "$ARCH" = "amd64" ]; then OPENCODE_ARCH="x64"; else OPENCODE_ARCH="arm64"; fi
-    if curl -fsSL "https://github.com/sst/opencode/releases/latest/download/opencode-linux-${OPENCODE_ARCH}.zip" -o /tmp/opencode.zip \
-      && unzip -q /tmp/opencode.zip -d /tmp/opencode \
-      && sudo mv /tmp/opencode/opencode /usr/local/bin/opencode \
-      && sudo chmod +x /usr/local/bin/opencode \
-      && rm -rf /tmp/opencode.zip /tmp/opencode; then
+    if curl -fsSL "https://github.com/sst/opencode/releases/latest/download/opencode-linux-${OPENCODE_ARCH}.zip" -o /tmp/opencode.zip &&
+      unzip -q /tmp/opencode.zip -d /tmp/opencode &&
+      sudo mv /tmp/opencode/opencode /usr/local/bin/opencode &&
+      sudo chmod +x /usr/local/bin/opencode &&
+      rm -rf /tmp/opencode.zip /tmp/opencode; then
       log "✓ opencode updated successfully."
     else
       log "WARNING: Failed to update opencode."
@@ -254,7 +247,7 @@ install_dev_tools() {
   fi
 
   # Install codex
-  if ! command -v codex &> /dev/null; then
+  if ! command -v codex &>/dev/null; then
     log "Installing codex..."
     if npm install -g @openai/codex 2>/dev/null; then
       log "✓ codex installed successfully."
@@ -296,7 +289,6 @@ PY
 
   if [[ ${#scripts[@]} -gt 0 ]]; then
     log "Running project bootstrap scripts..."
-    status "Running bootstrap scripts..."
     for script in "${scripts[@]}"; do
       local script_path="${script_dir}/${script}"
 
@@ -327,7 +319,6 @@ PY
 
     if [[ ${#userscripts[@]} -gt 0 ]]; then
       log "Running user bootstrap scripts..."
-      status "Running user scripts..."
       for script_path in "${userscripts[@]}"; do
         local script_name=$(basename "${script_path}")
         log "→ ${script_name}"
