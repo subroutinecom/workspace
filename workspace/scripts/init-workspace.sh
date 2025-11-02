@@ -15,8 +15,10 @@ RUNTIME_CONFIG="${WORKSPACE_RUNTIME_CONFIG:-/workspace/config/runtime.json}"
 REPO_URL="${WORKSPACE_REPO_URL:-${GIT_REPO:-}}"
 REPO_BRANCH="${WORKSPACE_REPO_BRANCH:-${BRANCH:-main}}"
 
-if [[ -f "${WORKSPACE_HOME}/.ssh_agent_env" ]]; then
-  source "${WORKSPACE_HOME}/.ssh_agent_env"
+# SSH setup is handled by add-ssh-key.sh (runs as root in entrypoint)
+# Just need to export SSH_AUTH_SOCK if agent is available
+if [[ -S /ssh-agent ]]; then
+  export SSH_AUTH_SOCK=/ssh-agent
 fi
 
 copy_git_config() {
@@ -118,36 +120,6 @@ PY
 }
 
 configure_shell_helpers() {
-  if ! grep -q "ssh_agent_env" "${WORKSPACE_HOME}/.profile" 2>/dev/null; then
-    {
-      echo ""
-      echo "# SSH agent"
-      echo "if [ -f ~/.ssh_agent_env ]; then"
-      echo "  . ~/.ssh_agent_env"
-      echo "fi"
-    } >>"${WORKSPACE_HOME}/.profile"
-  fi
-
-  if ! grep -q "ssh_agent_env" "${WORKSPACE_HOME}/.bashrc" 2>/dev/null; then
-    {
-      echo ""
-      echo "# SSH agent"
-      echo "if [[ -f ~/.ssh_agent_env ]]; then"
-      echo "  source ~/.ssh_agent_env"
-      echo "fi"
-    } >>"${WORKSPACE_HOME}/.bashrc"
-  fi
-
-  if [[ -f "${WORKSPACE_HOME}/.zshrc" ]] && ! grep -q "ssh_agent_env" "${WORKSPACE_HOME}/.zshrc" 2>/dev/null; then
-    {
-      echo ""
-      echo "# SSH agent"
-      echo "if [[ -f ~/.ssh_agent_env ]]; then"
-      echo "  source ~/.ssh_agent_env"
-      echo "fi"
-    } >>"${WORKSPACE_HOME}/.zshrc"
-  fi
-
   if ! grep -q "GIT_SSH_COMMAND" "${WORKSPACE_HOME}/.bashrc" 2>/dev/null; then
     {
       echo ""
