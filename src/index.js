@@ -401,13 +401,6 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
     runArgs.push("-v", `${hostHome}:/host/home:ro`);
   }
 
-  // Mount SSH agent if available, otherwise fall back to mounting SSH keys
-  const agentSocket = process.env.SSH_AUTH_SOCK;
-  if (agentSocket && fs.existsSync(agentSocket)) {
-    runArgs.push("-v", `${agentSocket}:/ssh-agent`);
-    addEnv("SSH_AUTH_SOCK", "/ssh-agent");
-  }
-
   runArgs.push("-v", `${volumes.home}:/home/workspace`);
   runArgs.push("-v", `${volumes.docker}:/var/lib/docker`);
   runArgs.push("-v", `${volumes.cache}:/home/workspace/.cache`);
