@@ -22,9 +22,10 @@ if [[ -S /ssh-agent ]]; then
 fi
 
 copy_git_config() {
-  if [[ -f "${HOST_HOME}/.gitconfig" ]]; then
+  if sudo test -f "${HOST_HOME}/.gitconfig" 2>/dev/null; then
     log "Copying host gitconfig."
-    cp "${HOST_HOME}/.gitconfig" "${WORKSPACE_HOME}/.gitconfig"
+    sudo cp "${HOST_HOME}/.gitconfig" "${WORKSPACE_HOME}/.gitconfig"
+    sudo chown workspace:workspace "${WORKSPACE_HOME}/.gitconfig"
   fi
 }
 
