@@ -161,7 +161,9 @@ RUN chmod +x /opt/workspace/scripts/*.sh \
   && install -m 0755 /opt/workspace/scripts/init-workspace.sh /usr/local/bin/init-workspace.sh \
   && install -m 0755 /opt/workspace/scripts/ensure-services.sh /usr/local/bin/ensure-services.sh \
   && install -m 0755 /opt/workspace/scripts/entrypoint.sh /opt/workspace/entrypoint.sh \
-  && install -m 0755 /opt/workspace/scripts/add-ssh-key.sh /opt/workspace/add-ssh-key.sh
+  && install -m 0755 /opt/workspace/scripts/add-ssh-key.sh /opt/workspace/add-ssh-key.sh \
+  && install -m 0755 /opt/workspace/scripts/setup-ssh-env.sh /opt/workspace/setup-ssh-env.sh \
+  && install -m 0644 /opt/workspace/scripts/workspace-ssh-agent.sh /etc/profile.d/workspace-ssh-agent.sh
 
 USER root
 WORKDIR /home/workspace

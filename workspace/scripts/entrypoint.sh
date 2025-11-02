@@ -6,6 +6,15 @@
 echo "[entrypoint] Adding SSH key..."
 /opt/workspace/add-ssh-key.sh || echo "[entrypoint] Failed to add SSH key (non-fatal)"
 
+echo "[entrypoint] Setting up SSH agent environment..."
+/opt/workspace/setup-ssh-env.sh || echo "[entrypoint] Failed to setup SSH env (non-fatal)"
+
+if [ -f /etc/profile.d/workspace-ssh-agent.sh ]; then
+  cat /etc/profile.d/workspace-ssh-agent.sh >> /home/workspace/.bashrc || true
+  cat /etc/profile.d/workspace-ssh-agent.sh >> /home/workspace/.zshenv || true
+  chown workspace:workspace /home/workspace/.bashrc /home/workspace/.zshenv 2>/dev/null || true
+fi
+
 echo "[entrypoint] Fixing workspace directory permissions..."
 chown -R workspace:workspace /home/workspace/.cache 2>/dev/null || true
 
