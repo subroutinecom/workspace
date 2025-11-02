@@ -58,6 +58,11 @@ clone_repository() {
     return
   fi
 
+  if [[ -f "${WORKSPACE_HOME}/.workspace-initialized" ]]; then
+    log "Workspace already initialized. Skipping repository clone."
+    return
+  fi
+
   # Read clone args from runtime config if available
   local clone_args=()
   if [[ -f "${RUNTIME_CONFIG}" ]]; then
@@ -148,6 +153,10 @@ configure_shell_helpers() {
 }
 
 install_lazyvim() {
+  if [[ -f "${WORKSPACE_HOME}/.workspace-initialized" ]]; then
+    return
+  fi
+
   local nvim_config_dir="${WORKSPACE_HOME}/.config/nvim"
   local host_nvim_config="${HOST_HOME}/.config/nvim"
 
@@ -198,6 +207,10 @@ install_lazyvim() {
 }
 
 install_dev_tools() {
+  if [[ -f "${WORKSPACE_HOME}/.workspace-initialized" ]]; then
+    return
+  fi
+
   log "Installing latest development tools..."
 
   # Install Claude Code
@@ -265,6 +278,10 @@ install_dev_tools() {
 }
 
 run_bootstrap_scripts() {
+  if [[ -f "${WORKSPACE_HOME}/.workspace-initialized" ]]; then
+    return
+  fi
+
   if [[ ! -f "${RUNTIME_CONFIG}" ]]; then
     return
   fi
