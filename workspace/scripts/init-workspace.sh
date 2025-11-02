@@ -29,6 +29,37 @@ copy_git_config() {
   fi
 }
 
+get_selected_ssh_key() {
+  if [[ -f "${RUNTIME_CONFIG}" ]]; then
+    python3 - "$RUNTIME_CONFIG" <<'PY'
+import json, sys, pathlib
+try:
+    cfg_path = pathlib.Path(sys.argv[1])
+    data = json.loads(cfg_path.read_text())
+    selected = data.get("ssh", {}).get("selectedKey")
+    if selected:
+        print(selected)
+except Exception:
+    pass
+PY
+  fi
+}
+
+configure_git_ssh_key() {
+  local repo_dir="$1"
+  local selected_key
+  selected_key=$(get_selected_ssh_key)
+
+  if [[ -n "${selected_key}" && -f "${WORKSPACE_HOME}/.ssh/${selected_key}" ]]; then
+    if [[ -d "${repo_dir}/.git" ]]; then
+      log "Configuring git to use SSH key: ${selected_key}"
+      cd "${repo_dir}"
+      git config --local core.sshCommand "ssh -i ~/.ssh/${selected_key} -F ~/.ssh/config"
+      cd "${WORKSPACE_HOME}"
+    fi
+  fi
+}
+
 ensure_known_host() {
   local remote="$1"
   if [[ -z "${remote}" ]]; then
@@ -116,6 +147,14 @@ PY
       log "Failed to clone repository. Ensure your SSH agent is forwarded or use HTTPS URL."
       return 1
     fi
+  fi
+
+  local repo_name
+  repo_name=$(basename "${REPO_URL}" .git)
+  local repo_path="${WORKSPACE_HOME}/${repo_name}"
+
+  if [[ -d "${repo_path}" ]]; then
+    configure_git_ssh_key "${repo_path}"
   fi
 }
 

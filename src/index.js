@@ -19,6 +19,8 @@ const {
   mergeConfigs,
 } = require("./config");
 const { runCommand, runCommandStreaming, runCommandWithLogging, ensureDir, writeJson, sleep, ora } = require("./utils");
+const { getUserConfig } = require("./user-config");
+const { selectKeyForRepo, getKeyBasename } = require("./ssh");
 
 const createLogger = (verbose) => {
   const spinner = verbose ? null : ora();
@@ -204,6 +206,7 @@ const writeRuntimeMetadata = async (resolved, runtime) => {
     },
     ssh: {
       port: runtime.sshPort,
+      selectedKey: runtime.selectedKey || null,
     },
     forwards: runtime.forwards,
     bootstrap: {
@@ -382,6 +385,9 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   addEnv("WORKSPACE_ASSIGNED_SSH_PORT", runtime.sshPort);
   addEnv("WORKSPACE_REPO_URL", resolved.workspace.repo.remote);
   addEnv("WORKSPACE_REPO_BRANCH", resolved.workspace.repo.branch);
+  if (runtime.selectedKey) {
+    addEnv("WORKSPACE_SELECTED_SSH_KEY", runtime.selectedKey);
+  }
 
   // Enable BuildKit for docker build and docker compose
   addEnv("DOCKER_BUILDKIT", "1");
@@ -574,6 +580,12 @@ program
 
     await ensureDir(resolved.workspace.state.root);
     const runtime = await ensureWorkspaceState(resolved);
+
+    const userConfig = getUserConfig();
+    const selectedKey = selectKeyForRepo(resolved.workspace.repo.remote, userConfig);
+    const selectedKeyBasename = getKeyBasename(selectedKey);
+    runtime.selectedKey = selectedKeyBasename;
+
     await writeRuntimeMetadata(resolved, runtime);
     const sshKeyInfo = await ensureSshKey(resolved);
 

@@ -22,9 +22,27 @@ if [[ -n "${SSH_PUBLIC_KEY:-}" ]]; then
 fi
 
 sort -u "${AUTHORIZED_KEYS}" -o "${AUTHORIZED_KEYS}" 2>/dev/null || true
+
+SELECTED_KEY="${WORKSPACE_SELECTED_SSH_KEY:-}"
+if [[ -n "${SELECTED_KEY}" && -f "${WORKSPACE_HOME}/.ssh/${SELECTED_KEY}" ]]; then
+  SSH_CONFIG="${WORKSPACE_HOME}/.ssh/config"
+  if [[ ! -f "${SSH_CONFIG}" ]] || ! grep -q "IdentityFile.*${SELECTED_KEY}" "${SSH_CONFIG}" 2>/dev/null; then
+    {
+      echo ""
+      echo "# Auto-configured by workspace CLI"
+      echo "Host *"
+      echo "  IdentityFile ~/.ssh/${SELECTED_KEY}"
+      echo "  IdentitiesOnly yes"
+      echo "  AddKeysToAgent yes"
+    } >> "${SSH_CONFIG}"
+  fi
+fi
+
 chown -R workspace:workspace "${WORKSPACE_HOME}/.ssh"
 chmod 700 "${WORKSPACE_HOME}/.ssh"
-chmod 600 "${WORKSPACE_HOME}/.ssh/id_"* 2>/dev/null || true
+
+find "${WORKSPACE_HOME}/.ssh" -type f -not -name "*.pub" -not -name "known_hosts" -not -name "config" -not -name "authorized_keys" -exec chmod 600 {} \; 2>/dev/null || true
+
 chmod 644 "${WORKSPACE_HOME}/.ssh/"*.pub 2>/dev/null || true
 chmod 644 "${WORKSPACE_HOME}/.ssh/known_hosts" 2>/dev/null || true
 chmod 644 "${WORKSPACE_HOME}/.ssh/config" 2>/dev/null || true

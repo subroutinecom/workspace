@@ -51,15 +51,29 @@ mounts:
 `~/.workspaces/config.yml` for user-specific settings across all workspaces:
 
 ```yaml
+ssh:
+  # Default SSH key (optional - uses heuristic if not specified)
+  defaultKey: ~/.ssh/id_ed25519
+
+  # Per-repository key overrides (supports wildcards)
+  repos:
+    "git@github.com:user/private-repo.git": ~/.ssh/id_github_personal
+    "git@github.com:company/*": ~/.ssh/id_github_work
+
 bootstrap:
   scripts:
     - userscripts # Directory: runs all executable files alphabetically
-    # Or specify individual scripts:
-    # - userscripts/setup.sh
-    # - custom/my-script.sh
 ```
 
 User config is automatically created on first run with `userscripts` directory reference. Paths are relative to `~/.workspaces/`. Directories auto-expand to run all executable files. Configuration is merged with project config - user bootstrap scripts run **after** project scripts.
+
+**SSH Configuration:**
+
+- All SSH keys from `~/.ssh/` are copied to containers
+- Specify `defaultKey` to set which key is used by default for git operations
+- Per-repository overrides support exact matches and wildcard patterns
+- If no `defaultKey` is specified, the CLI uses SSH agent keys or falls back to `id_ed25519`, `id_ecdsa`, or `id_rsa`
+- The selected key is automatically configured in git and SSH config inside containers
 
 **Bootstrap scripts** run as `workspace` user with passwordless sudo.
 
