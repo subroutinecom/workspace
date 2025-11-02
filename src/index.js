@@ -131,7 +131,24 @@ const withConfig = async (options = {}, workspaceName) => {
   const projectConfig = await loadConfig(workspaceDir, configFilename);
   const userConfig = await loadUserConfig();
 
+  if (options.verbose) {
+    console.log("\n=== Configuration Loading ===");
+    console.log(`Project config dir: ${workspaceDir}`);
+    console.log(`Project config file: ${configFilename}`);
+    console.log("\n--- Project Config ---");
+    console.log(JSON.stringify(projectConfig, null, 2));
+    console.log("\n--- User Config (~/.workspaces/config.yml) ---");
+    console.log(JSON.stringify(userConfig, null, 2));
+  }
+
   const raw = mergeConfigs(projectConfig, userConfig);
+
+  if (options.verbose) {
+    console.log("\n--- Merged Config ---");
+    console.log(JSON.stringify(raw, null, 2));
+    console.log("=== End Configuration Loading ===\n");
+  }
+
   const resolved = await resolveConfig(raw, workspaceDir, {
     workspaceNameOverride: workspaceName,
   });
@@ -582,9 +599,27 @@ program
     const runtime = await ensureWorkspaceState(resolved);
 
     const userConfig = getUserConfig();
+
+    if (options.verbose) {
+      console.log("\n=== SSH Key Selection ===");
+      console.log(`Repository URL: ${resolved.workspace.repo.remote}`);
+      console.log("\n--- User SSH Config (~/.workspaces/config.yml) ---");
+      if (userConfig.ssh && Object.keys(userConfig.ssh).length > 0) {
+        console.log(JSON.stringify(userConfig.ssh, null, 2));
+      } else {
+        console.log("No SSH configuration found");
+      }
+    }
+
     const selectedKey = selectKeyForRepo(resolved.workspace.repo.remote, userConfig);
     const selectedKeyBasename = getKeyBasename(selectedKey);
     runtime.selectedKey = selectedKeyBasename;
+
+    if (options.verbose) {
+      console.log(`\nMatched key: ${selectedKey || "(none - will use SSH agent or default)"}`);
+      console.log(`Key basename for container: ${selectedKeyBasename || "(none)"}`);
+      console.log("=== End SSH Key Selection ===\n");
+    }
 
     await writeRuntimeMetadata(resolved, runtime);
     const sshKeyInfo = await ensureSshKey(resolved);

@@ -95,6 +95,20 @@ clone_repository() {
     return
   fi
 
+  log "=== Configuration Debug Info ==="
+  log "Repository URL: ${REPO_URL}"
+
+  if [[ -f "${RUNTIME_CONFIG}" ]]; then
+    log "Runtime config loaded from: ${RUNTIME_CONFIG}"
+    log "--- Runtime Config Contents ---"
+    cat "${RUNTIME_CONFIG}" 2>/dev/null | while IFS= read -r line; do
+      log "  ${line}"
+    done
+    log "--- End Runtime Config ---"
+  else
+    log "WARNING: Runtime config not found at ${RUNTIME_CONFIG}"
+  fi
+
   # Read clone args from runtime config if available
   local clone_args=()
   if [[ -f "${RUNTIME_CONFIG}" ]]; then
@@ -119,22 +133,49 @@ PY
   local selected_key
   selected_key=$(get_selected_ssh_key)
 
+  log "--- SSH Key Selection ---"
+  if [[ -f "${RUNTIME_CONFIG}" ]]; then
+    local ssh_config_from_runtime
+    ssh_config_from_runtime=$(python3 - "$RUNTIME_CONFIG" <<'PY'
+import json, sys, pathlib
+try:
+    cfg_path = pathlib.Path(sys.argv[1])
+    data = json.loads(cfg_path.read_text())
+    ssh_info = data.get("ssh", {})
+    print(f"ssh.selectedKey: {ssh_info.get('selectedKey', 'null')}")
+except Exception as e:
+    print(f"Error reading SSH config: {e}")
+PY
+)
+    log "  ${ssh_config_from_runtime}"
+  fi
+
   if [[ -n "${selected_key}" ]]; then
+    log "  Decision: Using selected key from runtime config: ${selected_key}"
     if [[ -f "${WORKSPACE_HOME}/.ssh/${selected_key}" ]]; then
-      log "Selected SSH key from config: ${selected_key}"
+      log "  Key file exists at: ${WORKSPACE_HOME}/.ssh/${selected_key}"
+      local key_type
+      key_type=$(head -1 "${WORKSPACE_HOME}/.ssh/${selected_key}" 2>/dev/null | awk '{print $1}' || echo "unknown")
+      log "  Key type: ${key_type}"
       export GIT_SSH_COMMAND="ssh -i ~/.ssh/${selected_key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-      log "GIT_SSH_COMMAND set to: ${GIT_SSH_COMMAND}"
+      log "  GIT_SSH_COMMAND set to: ${GIT_SSH_COMMAND}"
     else
-      log "WARNING: Selected SSH key not found: ${WORKSPACE_HOME}/.ssh/${selected_key}"
+      log "  ERROR: Selected SSH key not found at ${WORKSPACE_HOME}/.ssh/${selected_key}"
+      log "  Available keys in ~/.ssh/:"
+      ls -la "${WORKSPACE_HOME}/.ssh/" 2>/dev/null | grep -v "\.pub$" | grep -v "known_hosts" | grep -v "config" | grep -v "authorized_keys" | tail -n +2 | while IFS= read -r line; do
+        log "    ${line}"
+      done
     fi
   else
-    log "No SSH key selected in runtime config, will use SSH agent or default keys"
+    log "  Decision: No SSH key selected in runtime config"
     if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
-      log "SSH agent available at: ${SSH_AUTH_SOCK}"
+      log "  Fallback: Using SSH agent at ${SSH_AUTH_SOCK}"
     else
-      log "WARNING: No SSH agent available"
+      log "  WARNING: No SSH agent available, clone may fail"
     fi
   fi
+  log "=== End Configuration Debug Info ==="
+  log ""
 
   ensure_known_host "${REPO_URL}"
 
