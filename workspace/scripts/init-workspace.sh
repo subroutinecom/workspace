@@ -54,7 +54,7 @@ configure_git_ssh_key() {
     if [[ -d "${repo_dir}/.git" ]]; then
       log "Configuring git to use SSH key: ${selected_key}"
       cd "${repo_dir}"
-      git config --local core.sshCommand "ssh -i ~/.ssh/${selected_key} -F ~/.ssh/config"
+      git config --local core.sshCommand "ssh -i ~/.ssh/${selected_key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
       cd "${WORKSPACE_HOME}"
     fi
   fi
@@ -122,7 +122,7 @@ PY
   if [[ -n "${selected_key}" ]]; then
     if [[ -f "${WORKSPACE_HOME}/.ssh/${selected_key}" ]]; then
       log "Selected SSH key from config: ${selected_key}"
-      export GIT_SSH_COMMAND="ssh -i ~/.ssh/${selected_key} -F ~/.ssh/config"
+      export GIT_SSH_COMMAND="ssh -i ~/.ssh/${selected_key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
       log "GIT_SSH_COMMAND set to: ${GIT_SSH_COMMAND}"
     else
       log "WARNING: Selected SSH key not found: ${WORKSPACE_HOME}/.ssh/${selected_key}"
@@ -179,21 +179,6 @@ PY
 }
 
 configure_shell_helpers() {
-  if ! grep -q "GIT_SSH_COMMAND" "${WORKSPACE_HOME}/.bashrc" 2>/dev/null; then
-    {
-      echo ""
-      echo "# Workspace Git configuration"
-      echo "export GIT_SSH_COMMAND=\"ssh -F ~/.ssh/config\""
-    } >>"${WORKSPACE_HOME}/.bashrc"
-  fi
-
-  if [[ -f "${WORKSPACE_HOME}/.zshrc" ]] && ! grep -q "GIT_SSH_COMMAND" "${WORKSPACE_HOME}/.zshrc" 2>/dev/null; then
-    {
-      echo ""
-      echo "# Workspace Git configuration"
-      echo "export GIT_SSH_COMMAND=\"ssh -F ~/.ssh/config\""
-    } >>"${WORKSPACE_HOME}/.zshrc"
-  fi
 
   if ! grep -q ".npm-global/bin" "${WORKSPACE_HOME}/.bashrc" 2>/dev/null; then
     {
