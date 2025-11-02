@@ -13,13 +13,6 @@ status() {
   printf "%s\n" "$*"
 }
 
-QUICK=false
-if [[ "${1:-}" == "--quick" || "${1:-}" == "-q" ]]; then
-  QUICK=true
-  shift || true
-  log "Running in quick mode."
-fi
-
 WORKSPACE_HOME="${WORKSPACE_HOME:-/home/workspace}"
 HOST_HOME="${HOST_HOME:-/host/home}"
 RUNTIME_CONFIG="${WORKSPACE_RUNTIME_CONFIG:-/workspace/config/runtime.json}"

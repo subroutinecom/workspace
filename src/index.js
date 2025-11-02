@@ -16,6 +16,45 @@ const {
   DEFAULT_CONFIG_FILENAME,
 } = require("./config");
 const { runCommand, runCommandStreaming, runCommandWithLogging, ensureDir, writeJson, sleep, ora } = require("./utils");
+
+const createLogger = (verbose) => {
+  const spinner = verbose ? null : ora();
+
+  return {
+    start: (text) => {
+      if (spinner) {
+        spinner.start(text);
+      } else {
+        console.log(text);
+      }
+    },
+    update: (text) => {
+      if (spinner) {
+        spinner.text = text;
+      }
+    },
+    succeed: (text) => {
+      if (spinner) {
+        spinner.succeed(text);
+      } else {
+        console.log(text);
+      }
+    },
+    fail: (text) => {
+      if (spinner) {
+        spinner.fail(text);
+      }
+    },
+    info: (text) => {
+      if (spinner) {
+        spinner.info(text);
+      } else {
+        console.log(text);
+      }
+    },
+    isVerbose: () => verbose,
+  };
+};
 const {
   imageExists,
   buildImage,
@@ -177,8 +216,8 @@ const ensureImage = async (resolved, { rebuild = false, noCache = false } = {}) 
   }
 };
 
-const waitForContainer = async (containerName, spinner, timeoutMs = 15000) => {
-  if (spinner) spinner.text = "Waiting for container to be ready...";
+const waitForContainer = async (containerName, logger, timeoutMs = 15000) => {
+  logger.update("Waiting for container to be ready...");
   const startTime = Date.now();
   while (Date.now() - startTime < timeoutMs) {
     try {
@@ -191,8 +230,8 @@ const waitForContainer = async (containerName, spinner, timeoutMs = 15000) => {
   throw new Error(`Timed out waiting for container ${containerName} to become ready`);
 };
 
-const waitForDockerd = async (containerName, spinner, timeoutMs = 30000) => {
-  if (spinner) spinner.text = "Waiting for Docker daemon...";
+const waitForDockerd = async (containerName, logger, timeoutMs = 30000) => {
+  logger.update("Waiting for Docker daemon...");
   const startTime = Date.now();
   while (Date.now() - startTime < timeoutMs) {
     try {
@@ -211,13 +250,13 @@ const waitForDockerd = async (containerName, spinner, timeoutMs = 30000) => {
  * - Volume: workspace-internal-buildkit-cache
  * - BuildKit daemon: workspace-internal-buildkitd
  */
-const ensureSharedBuildKit = async (spinner) => {
+const ensureSharedBuildKit = async (logger) => {
   const networkName = "workspace-internal-buildnet";
   const volumeName = "workspace-internal-buildkit-cache";
   const buildkitdName = "workspace-internal-buildkitd";
   const buildkitdPort = 1234;
 
-  if (spinner) spinner.text = "Setting up BuildKit infrastructure...";
+  logger.update("Setting up BuildKit infrastructure...");
 
   if (!(await networkExists(networkName))) {
     await createNetwork(networkName);
@@ -271,12 +310,12 @@ const ensureSharedBuildKit = async (spinner) => {
  * - docker compose build (when DOCKER_BUILDKIT=1, uses default buildx builder)
  * - docker compose up --build (same as above)
  */
-const configureBuildxInContainer = async (containerName, buildkitInfo, spinner) => {
+const configureBuildxInContainer = async (containerName, buildkitInfo, logger) => {
   const builderName = "workspace-internal-builder";
   const buildkitdEndpoint = `tcp://${buildkitInfo.buildkitdName}:${buildkitInfo.buildkitdPort}`;
   const user = "workspace";
 
-  if (spinner) spinner.text = "Configuring buildx...";
+  logger.update("Configuring buildx...");
 
   try {
     await execInContainer(containerName, ["docker", "buildx", "rm", builderName], { user });
@@ -381,11 +420,8 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   return { runArgs, volumes };
 };
 
-const runInitScript = async (resolved, { quick = true, spinner = null } = {}) => {
+const runInitScript = async (resolved, logger) => {
   const args = ["exec", "-u", "workspace", resolved.workspace.containerName, "/usr/local/bin/init-workspace.sh"];
-  if (quick) {
-    args.push("--quick");
-  }
 
   const logsDir = path.join(os.homedir(), ".workspaces", "logs");
   await ensureDir(logsDir);
@@ -396,11 +432,12 @@ const runInitScript = async (resolved, { quick = true, spinner = null } = {}) =>
     await runCommandWithLogging("docker", args, {
       logFile,
       onOutput: (data) => {
-        if (!spinner) return;
-        const lines = data.split("\n").filter(l => l.trim());
-        for (const line of lines) {
-          if (!line.startsWith('[workspace:init]')) {
-            spinner.text = line;
+        if (logger.isVerbose()) {
+          process.stdout.write(data);
+        } else {
+          const lines = data.split("\n").filter(l => l.trim());
+          for (const line of lines) {
+            logger.update(line);
           }
         }
       }
@@ -476,6 +513,7 @@ program
   .option("--no-cache", "rebuild image without cache (implies --rebuild)", false)
   .option("--force-recreate", "remove any existing container before starting", false)
   .option("--no-init", "skip running init-workspace.sh after start", false)
+  .option("--verbose", "show detailed output instead of spinner", false)
   .option("--path <path>", "use workspace configuration from a specific path")
   .action(async (workspaceName, options) => {
     const wsInfo = await getWorkspaceInfo(workspaceName, options);
@@ -488,23 +526,26 @@ program
         console.log(`Connect with: workspace shell ${workspaceName}`);
         return;
       } else {
-        const spinner = ora(`Starting workspace '${workspaceName}'...`).start();
+        const logger = createLogger(options.verbose);
+        logger.start(`Starting workspace '${workspaceName}'...`);
+
         try {
           await startContainer(wsInfo.containerName);
-          await waitForDockerd(wsInfo.containerName, spinner);
-          const buildkitInfo = await ensureSharedBuildKit(spinner);
+          await waitForDockerd(wsInfo.containerName, logger);
+          const buildkitInfo = await ensureSharedBuildKit(logger);
           await connectToNetwork(wsInfo.containerName, buildkitInfo.networkName);
-          await configureBuildxInContainer(wsInfo.containerName, buildkitInfo, spinner);
+          await configureBuildxInContainer(wsInfo.containerName, buildkitInfo, logger);
 
           if (!options.noInit && wsInfo.configInfo) {
-            spinner.text = "Running initialization...";
-            await runInitScript(wsInfo.configInfo.resolved, { quick: true, spinner });
+            logger.update("Running initialization...");
+            await runInitScript(wsInfo.configInfo.resolved, logger);
           }
-          spinner.succeed("Workspace started");
+
+          logger.succeed("Workspace started");
           console.log(`Connect with: workspace shell ${workspaceName}`);
           return;
         } catch (err) {
-          spinner.fail("Failed to start workspace");
+          logger.fail("Failed to start workspace");
           throw err;
         }
       }
@@ -533,53 +574,55 @@ program
       noCache: options.noCache,
     });
 
-    const spinner = ora(`Starting workspace '${resolved.workspace.name}'...`).start();
+    const logger = createLogger(options.verbose);
+    logger.start(`Starting workspace '${resolved.workspace.name}'...`);
 
     try {
-      const buildkitInfo = await ensureSharedBuildKit(spinner);
+      const buildkitInfo = await ensureSharedBuildKit(logger);
 
       if (containerAlreadyExists) {
         if (options.forceRecreate) {
-          spinner.text = "Removing existing container...";
+          logger.update("Removing existing container...");
           await removeContainer(resolved.workspace.containerName, { force: true });
         } else if (await containerRunning(resolved.workspace.containerName)) {
-          spinner.info(`Workspace '${resolved.workspace.name}' is already running`);
+          logger.info(`Workspace '${resolved.workspace.name}' is already running`);
           console.log(`Connect with: ${cliHint}`);
           return;
         } else {
-          spinner.text = "Starting container...";
+          logger.update("Starting container...");
           await startContainer(resolved.workspace.containerName);
-          await waitForDockerd(resolved.workspace.containerName, spinner);
+          await waitForDockerd(resolved.workspace.containerName, logger);
           await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
-          await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo, spinner);
+          await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo, logger);
 
           if (!options.noInit) {
-            spinner.text = "Running initialization...";
-            await runInitScript(resolved, { quick: true, spinner });
+            logger.update("Running initialization...");
+            await runInitScript(resolved, logger);
           }
-          spinner.succeed("Workspace started");
+
+          logger.succeed("Workspace started");
           console.log(`Connect with: ${cliHint}`);
           return;
         }
       }
 
       const { runArgs, volumes } = assembleRunArgs(resolved, sshKeyInfo, runtime, options);
-      spinner.text = "Creating container...";
+      logger.update("Creating container...");
       await createContainer(runArgs);
 
       await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
 
-      await waitForContainer(resolved.workspace.containerName, spinner);
-      await waitForDockerd(resolved.workspace.containerName, spinner);
+      await waitForContainer(resolved.workspace.containerName, logger);
+      await waitForDockerd(resolved.workspace.containerName, logger);
 
-      await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo, spinner);
+      await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo, logger);
 
       if (!options.noInit) {
-        spinner.text = "Running initialization...";
-        await runInitScript(resolved, { quick: true, spinner });
+        logger.update("Running initialization...");
+        await runInitScript(resolved, logger);
       }
 
-      spinner.succeed("Workspace is ready!");
+      logger.succeed("Workspace is ready!");
       console.log(`  SSH port: ${runtime.sshPort}`);
       if (runtime.forwards.length) {
         console.log(`  Port forwarding: ${runtime.forwards.map((port) => `${port}`).join(", ")}`);
@@ -589,7 +632,7 @@ program
         console.log(`  Forward ports: ${proxyHint}`);
       }
     } catch (err) {
-      spinner.fail("Failed to start workspace");
+      logger.fail("Failed to start workspace");
       throw err;
     }
   });
