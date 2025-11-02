@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const fsExtra = require("fs-extra");
+const ora = require("ora");
 
 const runCommand = (command, args = [], options = {}) =>
   new Promise((resolve, reject) => {
@@ -45,8 +46,16 @@ const runCommandStreaming = (command, args = [], options = {}) =>
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env ? { ...process.env, ...options.env } : process.env,
-      stdio: "inherit",
+      stdio: options.quiet ? ["ignore", "pipe", "pipe"] : "inherit",
     });
+
+    let stderr = "";
+
+    if (options.quiet) {
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+    }
 
     child.on("error", (err) => {
       reject(err);
@@ -56,7 +65,61 @@ const runCommandStreaming = (command, args = [], options = {}) =>
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`Command failed: ${command} ${args.join(" ")}`));
+        const error = new Error(`Command failed: ${command} ${args.join(" ")}`);
+        if (options.quiet && stderr) {
+          error.stderr = stderr;
+        }
+        reject(error);
+      }
+    });
+  });
+
+const runCommandWithLogging = (command, args = [], options = {}) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env ? { ...process.env, ...options.env } : process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let logStream = null;
+
+    if (options.logFile) {
+      logStream = require("fs").createWriteStream(options.logFile);
+    }
+
+    child.stdout.on("data", (chunk) => {
+      const data = chunk.toString();
+      stdout += data;
+      if (logStream) logStream.write(data);
+      if (options.onOutput) options.onOutput(data);
+    });
+
+    child.stderr.on("data", (chunk) => {
+      const data = chunk.toString();
+      stderr += data;
+      if (logStream) logStream.write(data);
+      if (options.onOutput) options.onOutput(data);
+    });
+
+    child.on("error", (err) => {
+      if (logStream) logStream.end();
+      reject(err);
+    });
+
+    child.on("close", (code) => {
+      if (logStream) logStream.end();
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        const error = new Error(`Command failed: ${command} ${args.join(" ")}`);
+        error.code = code;
+        error.stdout = stdout;
+        error.stderr = stderr;
+        error.logFile = options.logFile;
+        reject(error);
       }
     });
   });
@@ -91,8 +154,10 @@ const getListeningPorts = async () => {
 module.exports = {
   runCommand,
   runCommandStreaming,
+  runCommandWithLogging,
   ensureDir,
   writeJson,
   sleep,
   getListeningPorts,
+  ora,
 };

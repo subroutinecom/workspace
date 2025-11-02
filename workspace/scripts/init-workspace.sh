@@ -9,6 +9,10 @@ log() {
   printf "[workspace:init] %s\n" "$*"
 }
 
+status() {
+  printf "%s\n" "$*"
+}
+
 QUICK=false
 if [[ "${1:-}" == "--quick" || "${1:-}" == "-q" ]]; then
   QUICK=true
@@ -64,6 +68,8 @@ clone_repository() {
     log "No repository URL configured. Skipping clone."
     return
   fi
+
+  status "Cloning repository..."
 
   # Read clone args from runtime config if available
   local clone_args=()
@@ -206,6 +212,7 @@ install_lazyvim() {
 
 install_dev_tools() {
   log "Installing latest development tools..."
+  status "Installing development tools..."
 
   # Install Claude Code
   if ! command -v claude &> /dev/null; then
@@ -296,6 +303,7 @@ PY
 
   if [[ ${#scripts[@]} -gt 0 ]]; then
     log "Running project bootstrap scripts..."
+    status "Running bootstrap scripts..."
     for script in "${scripts[@]}"; do
       local script_path="${script_dir}/${script}"
 
@@ -326,6 +334,7 @@ PY
 
     if [[ ${#userscripts[@]} -gt 0 ]]; then
       log "Running user bootstrap scripts..."
+      status "Running user scripts..."
       for script_path in "${userscripts[@]}"; do
         local script_name=$(basename "${script_path}")
         log "→ ${script_name}"

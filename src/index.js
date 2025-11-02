@@ -15,7 +15,7 @@ const {
   configExists,
   DEFAULT_CONFIG_FILENAME,
 } = require("./config");
-const { runCommand, runCommandStreaming, ensureDir, writeJson, sleep } = require("./utils");
+const { runCommand, runCommandStreaming, runCommandWithLogging, ensureDir, writeJson, sleep, ora } = require("./utils");
 const {
   imageExists,
   buildImage,
@@ -177,7 +177,8 @@ const ensureImage = async (resolved, { rebuild = false, noCache = false } = {}) 
   }
 };
 
-const waitForContainer = async (containerName, timeoutMs = 15000) => {
+const waitForContainer = async (containerName, spinner, timeoutMs = 15000) => {
+  if (spinner) spinner.text = "Waiting for container to be ready...";
   const startTime = Date.now();
   while (Date.now() - startTime < timeoutMs) {
     try {
@@ -190,10 +191,8 @@ const waitForContainer = async (containerName, timeoutMs = 15000) => {
   throw new Error(`Timed out waiting for container ${containerName} to become ready`);
 };
 
-/**
- * Wait for Docker daemon inside a DinD container to be ready
- */
-const waitForDockerd = async (containerName, timeoutMs = 30000) => {
+const waitForDockerd = async (containerName, spinner, timeoutMs = 30000) => {
+  if (spinner) spinner.text = "Waiting for Docker daemon...";
   const startTime = Date.now();
   while (Date.now() - startTime < timeoutMs) {
     try {
@@ -212,34 +211,29 @@ const waitForDockerd = async (containerName, timeoutMs = 30000) => {
  * - Volume: workspace-internal-buildkit-cache
  * - BuildKit daemon: workspace-internal-buildkitd
  */
-const ensureSharedBuildKit = async () => {
+const ensureSharedBuildKit = async (spinner) => {
   const networkName = "workspace-internal-buildnet";
   const volumeName = "workspace-internal-buildkit-cache";
   const buildkitdName = "workspace-internal-buildkitd";
   const buildkitdPort = 1234;
 
-  // Ensure network exists
+  if (spinner) spinner.text = "Setting up BuildKit infrastructure...";
+
   if (!(await networkExists(networkName))) {
-    console.log(`Creating shared BuildKit network: ${networkName}`);
     await createNetwork(networkName);
   }
 
-  // Ensure volume exists
   if (!(await volumeExists(volumeName))) {
-    console.log(`Creating shared BuildKit cache volume: ${volumeName}`);
     await createVolume(volumeName);
   }
 
-  // Ensure BuildKit daemon is running
   const buildkitdExists = await containerExists(buildkitdName);
   const buildkitdRunning = buildkitdExists && (await containerRunning(buildkitdName));
 
   if (!buildkitdRunning) {
     if (buildkitdExists) {
-      console.log(`Starting shared BuildKit daemon: ${buildkitdName}`);
       await startContainer(buildkitdName);
     } else {
-      console.log(`Creating shared BuildKit daemon: ${buildkitdName}`);
       await createContainer([
         "--detach",
         "--name",
@@ -277,56 +271,33 @@ const ensureSharedBuildKit = async () => {
  * - docker compose build (when DOCKER_BUILDKIT=1, uses default buildx builder)
  * - docker compose up --build (same as above)
  */
-const configureBuildxInContainer = async (containerName, buildkitInfo) => {
+const configureBuildxInContainer = async (containerName, buildkitInfo, spinner) => {
   const builderName = "workspace-internal-builder";
   const buildkitdEndpoint = `tcp://${buildkitInfo.buildkitdName}:${buildkitInfo.buildkitdPort}`;
-
-  console.log(`Configuring buildx in ${containerName}...`);
-
   const user = "workspace";
-  console.log(`  Configuring for user: ${user}`);
+
+  if (spinner) spinner.text = "Configuring buildx...";
 
   try {
-    const rmResult = await execInContainer(containerName, ["docker", "buildx", "rm", builderName], { user });
-    console.log(`  Removed existing builder: ${builderName}`);
+    await execInContainer(containerName, ["docker", "buildx", "rm", builderName], { user });
   } catch (err) {
-    console.log(`  No existing builder to remove`);
   }
 
-  console.log(`  Creating remote builder: ${builderName} -> ${buildkitdEndpoint}`);
   try {
-    const createResult = await execInContainer(
+    await execInContainer(
       containerName,
       ["docker", "buildx", "create", "--name", builderName, "--driver", "remote", buildkitdEndpoint, "--use"],
       { user }
     );
-    console.log(`  ✓ Builder created: ${createResult.stdout.trim()}`);
   } catch (err) {
-    console.error(`  ✗ FAILED to create builder!`);
-    console.error(`    Command: docker buildx create --name ${builderName} --driver remote ${buildkitdEndpoint} --use`);
-    console.error(`    Error: ${err.message}`);
-    if (err.stderr) {
-      console.error(`    Stderr: ${err.stderr}`);
-    }
-    throw new Error(`Failed to create buildx builder in ${containerName}: ${err.message}`);
+    throw new Error(`Failed to create buildx builder: ${err.message}`);
   }
 
-  console.log(`  Bootstrapping builder to verify connectivity...`);
   try {
     await execInContainer(containerName, ["docker", "buildx", "inspect", "--bootstrap"], { user });
-    console.log(`  ✓ Builder is connected and ready`);
   } catch (err) {
-    console.error(`  ✗ FAILED to bootstrap builder!`);
-    console.error(`    This means the container cannot reach the BuildKit daemon`);
-    console.error(`    Error: ${err.message}`);
-    if (err.stderr) {
-      console.error(`    Stderr: ${err.stderr}`);
-    }
-    throw new Error(`Failed to bootstrap buildx builder in ${containerName}: ${err.message}`);
+    throw new Error(`Failed to bootstrap buildx builder: ${err.message}`);
   }
-
-  console.log(`✓ Configured buildx to use shared BuildKit daemon at ${buildkitdEndpoint}`);
-  console.log(`  All builds (docker build, docker compose build) will now use shared cache`);
 };
 
 const computeVolumes = (containerName) => ({
@@ -410,12 +381,36 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   return { runArgs, volumes };
 };
 
-const runInitScript = async (resolved, { quick = true } = {}) => {
+const runInitScript = async (resolved, { quick = true, spinner = null } = {}) => {
   const args = ["exec", "-u", "workspace", resolved.workspace.containerName, "/usr/local/bin/init-workspace.sh"];
   if (quick) {
     args.push("--quick");
   }
-  await runCommandStreaming("docker", args);
+
+  const logsDir = path.join(os.homedir(), ".workspaces", "logs");
+  await ensureDir(logsDir);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+  const logFile = path.join(logsDir, `${resolved.workspace.name}-${timestamp}.log`);
+
+  try {
+    await runCommandWithLogging("docker", args, {
+      logFile,
+      onOutput: (data) => {
+        if (!spinner) return;
+        const lines = data.split("\n").filter(l => l.trim());
+        for (const line of lines) {
+          if (!line.startsWith('[workspace:init]')) {
+            spinner.text = line;
+          }
+        }
+      }
+    });
+  } catch (err) {
+    if (err.logFile) {
+      err.message = `${err.message}\nSee logs: ${err.logFile}`;
+    }
+    throw err;
+  }
 };
 
 program
@@ -493,21 +488,25 @@ program
         console.log(`Connect with: workspace shell ${workspaceName}`);
         return;
       } else {
-        console.log(`Starting existing container ${wsInfo.containerName}...`);
-        await startContainer(wsInfo.containerName);
+        const spinner = ora(`Starting workspace '${workspaceName}'...`).start();
+        try {
+          await startContainer(wsInfo.containerName);
+          await waitForDockerd(wsInfo.containerName, spinner);
+          const buildkitInfo = await ensureSharedBuildKit(spinner);
+          await connectToNetwork(wsInfo.containerName, buildkitInfo.networkName);
+          await configureBuildxInContainer(wsInfo.containerName, buildkitInfo, spinner);
 
-        await waitForDockerd(wsInfo.containerName);
-
-        const buildkitInfo = await ensureSharedBuildKit();
-        await connectToNetwork(wsInfo.containerName, buildkitInfo.networkName);
-        await configureBuildxInContainer(wsInfo.containerName, buildkitInfo);
-
-        if (!options.noInit && wsInfo.configInfo) {
-          await runInitScript(wsInfo.configInfo.resolved, { quick: true });
+          if (!options.noInit && wsInfo.configInfo) {
+            spinner.text = "Running initialization...";
+            await runInitScript(wsInfo.configInfo.resolved, { quick: true, spinner });
+          }
+          spinner.succeed("Workspace started");
+          console.log(`Connect with: workspace shell ${workspaceName}`);
+          return;
+        } catch (err) {
+          spinner.fail("Failed to start workspace");
+          throw err;
         }
-        console.log("Workspace started.");
-        console.log(`Connect with: workspace shell ${workspaceName}`);
-        return;
       }
     }
 
@@ -534,68 +533,64 @@ program
       noCache: options.noCache,
     });
 
-    const buildkitInfo = await ensureSharedBuildKit();
-
-    if (containerAlreadyExists) {
-      if (options.forceRecreate) {
-        console.log(`Removing existing container ${resolved.workspace.containerName}...`);
-        await removeContainer(resolved.workspace.containerName, { force: true });
-      } else if (await containerRunning(resolved.workspace.containerName)) {
-        console.log(`Workspace '${resolved.workspace.name}' is already running.`);
-        console.log(`Connect with: ${cliHint}`);
-        return;
-      } else {
-        console.log(`Starting existing container ${resolved.workspace.containerName}...`);
-        await startContainer(resolved.workspace.containerName);
-
-        await waitForDockerd(resolved.workspace.containerName);
-
-        await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
-
-        await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo);
-
-        if (!options.noInit) {
-          await runInitScript(resolved, { quick: true });
-        }
-        console.log("Workspace started.");
-        return;
-      }
-    }
-
-    const { runArgs, volumes } = assembleRunArgs(resolved, sshKeyInfo, runtime, options);
-    console.log(`Starting new workspace '${resolved.workspace.name}'...`);
-    await createContainer(runArgs);
-
-    await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
+    const spinner = ora(`Starting workspace '${resolved.workspace.name}'...`).start();
 
     try {
-      await waitForContainer(resolved.workspace.containerName);
-      await waitForDockerd(resolved.workspace.containerName);
+      const buildkitInfo = await ensureSharedBuildKit(spinner);
+
+      if (containerAlreadyExists) {
+        if (options.forceRecreate) {
+          spinner.text = "Removing existing container...";
+          await removeContainer(resolved.workspace.containerName, { force: true });
+        } else if (await containerRunning(resolved.workspace.containerName)) {
+          spinner.info(`Workspace '${resolved.workspace.name}' is already running`);
+          console.log(`Connect with: ${cliHint}`);
+          return;
+        } else {
+          spinner.text = "Starting container...";
+          await startContainer(resolved.workspace.containerName);
+          await waitForDockerd(resolved.workspace.containerName, spinner);
+          await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
+          await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo, spinner);
+
+          if (!options.noInit) {
+            spinner.text = "Running initialization...";
+            await runInitScript(resolved, { quick: true, spinner });
+          }
+          spinner.succeed("Workspace started");
+          console.log(`Connect with: ${cliHint}`);
+          return;
+        }
+      }
+
+      const { runArgs, volumes } = assembleRunArgs(resolved, sshKeyInfo, runtime, options);
+      spinner.text = "Creating container...";
+      await createContainer(runArgs);
+
+      await connectToNetwork(resolved.workspace.containerName, buildkitInfo.networkName);
+
+      await waitForContainer(resolved.workspace.containerName, spinner);
+      await waitForDockerd(resolved.workspace.containerName, spinner);
+
+      await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo, spinner);
+
+      if (!options.noInit) {
+        spinner.text = "Running initialization...";
+        await runInitScript(resolved, { quick: true, spinner });
+      }
+
+      spinner.succeed("Workspace is ready!");
+      console.log(`  SSH port: ${runtime.sshPort}`);
+      if (runtime.forwards.length) {
+        console.log(`  Port forwarding: ${runtime.forwards.map((port) => `${port}`).join(", ")}`);
+      }
+      console.log(`  Connect with: ${cliHint}`);
+      if (runtime.forwards.length) {
+        console.log(`  Forward ports: ${proxyHint}`);
+      }
     } catch (err) {
-      console.warn(`Container created but not ready yet: ${err.message}`);
-    }
-
-    await configureBuildxInContainer(resolved.workspace.containerName, buildkitInfo);
-
-    if (!options.noInit) {
-      await runInitScript(resolved, { quick: true });
-      console.log("Initialization script completed.");
-    }
-
-    console.log("");
-    console.log("Workspace is ready!");
-    console.log(`  Container : ${resolved.workspace.containerName}`);
-    console.log(`  SSH port  : ${runtime.sshPort}`);
-    if (runtime.forwards.length) {
-      console.log(`  Forwards  : ${runtime.forwards.map((port) => `${port}->${port}`).join(", ")}`);
-    }
-    console.log(`  Volumes   : ${Object.values(volumes).join(", ")}`);
-    console.log("");
-    console.log("Connect via:");
-    console.log(`  ${cliHint}`);
-    if (runtime.forwards.length) {
-      console.log("Forward ports:");
-      console.log(`  ${proxyHint}`);
+      spinner.fail("Failed to start workspace");
+      throw err;
     }
   });
 
