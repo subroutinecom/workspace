@@ -14,6 +14,9 @@ const {
   resolveConfig,
   configExists,
   DEFAULT_CONFIG_FILENAME,
+  ensureUserConfig,
+  loadUserConfig,
+  mergeConfigs,
 } = require("./config");
 const { runCommand, runCommandStreaming, runCommandWithLogging, ensureDir, writeJson, sleep, ora } = require("./utils");
 
@@ -119,9 +122,14 @@ const confirmPrompt = (message) => {
 const withConfig = async (options = {}, workspaceName) => {
   const configFilename = options.config || DEFAULT_CONFIG_FILENAME;
 
+  await ensureUserConfig();
+
   const workspaceDir = await findWorkspaceDir(options);
 
-  const raw = await loadConfig(workspaceDir, configFilename);
+  const projectConfig = await loadConfig(workspaceDir, configFilename);
+  const userConfig = await loadUserConfig();
+
+  const raw = mergeConfigs(projectConfig, userConfig);
   const resolved = await resolveConfig(raw, workspaceDir, {
     workspaceNameOverride: workspaceName,
   });
@@ -382,10 +390,9 @@ const assembleRunArgs = (resolved, sshKeyInfo, runtime, options = {}) => {
   runArgs.push("-v", `${resolved.workspace.state.runtimeConfigPath}:/workspace/config/runtime.json:ro`);
   runArgs.push("-v", `${resolved.workspace.configDir}:/workspace/source:ro`);
 
-  // Mount user scripts directory if it exists
-  const userScriptsDir = path.join(os.homedir(), ".workspaces", "userscripts");
-  if (fs.existsSync(userScriptsDir)) {
-    runArgs.push("-v", `${userScriptsDir}:/workspace/userscripts:ro`);
+  const userConfigDir = path.join(os.homedir(), ".workspaces");
+  if (fs.existsSync(userConfigDir)) {
+    runArgs.push("-v", `${userConfigDir}:/workspace/userconfig:ro`);
   }
 
   // Always mount host home directory

@@ -237,10 +237,7 @@ run_bootstrap_scripts() {
     return
   fi
 
-  # Bootstrap scripts come from /workspace/source (mounted from host workspace directory)
-  local script_dir="${WORKSPACE_SOURCE_DIR:-/workspace/source}"
-
-  mapfile -t scripts < <(
+  mapfile -t script_entries < <(
     python3 - "$RUNTIME_CONFIG" <<'PY'
 import json, sys, pathlib
 cfg_path = pathlib.Path(sys.argv[1])
@@ -248,54 +245,68 @@ try:
     data = json.loads(cfg_path.read_text())
     bootstrap = data.get("bootstrap") or {}
     for script in bootstrap.get("scripts") or []:
-        if isinstance(script, str) and script.strip():
-            print(script.strip())
+        if isinstance(script, dict):
+            path = script.get("path", "")
+            source = script.get("source", "project")
+            if path.strip():
+                print(f"{source}:{path.strip()}")
+        elif isinstance(script, str) and script.strip():
+            print(f"project:{script.strip()}")
 except Exception:
     sys.exit(0)
 PY
   )
 
-  if [[ ${#scripts[@]} -gt 0 ]]; then
-    log "Running project bootstrap scripts..."
-    for script in "${scripts[@]}"; do
-      local script_path="${script_dir}/${script}"
+  if [[ ${#script_entries[@]} -gt 0 ]]; then
+    log "Running bootstrap scripts..."
+    for entry in "${script_entries[@]}"; do
+      local source="${entry%%:*}"
+      local script="${entry#*:}"
 
-      if [[ ! -f "${script_path}" ]]; then
+      if [[ "${source}" == "user" ]]; then
+        local script_path="/workspace/userconfig/${script}"
+      else
+        local script_path="/workspace/source/${script}"
+      fi
+
+      if [[ -d "${script_path}" ]]; then
+        mapfile -t dir_scripts < <(find "${script_path}" -maxdepth 1 -type f -executable | sort)
+        if [[ ${#dir_scripts[@]} -gt 0 ]]; then
+          for dir_script in "${dir_scripts[@]}"; do
+            local script_name=$(basename "${dir_script}")
+            log "→ ${script}/${script_name}"
+            if ! (cd "${WORKSPACE_HOME}" && "${dir_script}"); then
+              log "ERROR: Bootstrap script failed: ${script}/${script_name}"
+              return 1
+            fi
+          done
+        fi
+      elif [[ -f "${script_path}" ]]; then
+        if [[ ! -x "${script_path}" ]]; then
+          log "ERROR: Bootstrap script is not executable: ${script_path}"
+          if [[ "${source}" == "user" ]]; then
+            log "Hint: Run 'chmod +x ~/.workspaces/${script}' on your host machine"
+          else
+            log "Hint: Run 'chmod +x ${script}' on your host machine"
+          fi
+          return 1
+        fi
+
+        log "→ ${script}"
+        if ! (cd "${WORKSPACE_HOME}" && "${script_path}"); then
+          log "ERROR: Bootstrap script failed: ${script}"
+          return 1
+        fi
+      else
         log "ERROR: Bootstrap script not found: ${script_path}"
-        log "Scripts should be in the directory with .workspace.yml"
-        return 1
-      fi
-
-      if [[ ! -x "${script_path}" ]]; then
-        log "ERROR: Bootstrap script is not executable: ${script_path}"
-        log "Hint: Run 'chmod +x ${script}' on your host machine"
-        return 1
-      fi
-
-      log "→ ${script}"
-      if ! (cd "${WORKSPACE_HOME}" && "${script_path}"); then
-        log "ERROR: Bootstrap script failed: ${script}"
+        if [[ "${source}" == "user" ]]; then
+          log "Scripts should be in ~/.workspaces/ or subdirectories"
+        else
+          log "Scripts should be in the directory with .workspace.yml"
+        fi
         return 1
       fi
     done
-  fi
-
-  # Run user scripts from ~/.workspaces/userscripts/ (if directory exists and is mounted)
-  if [[ -d "/workspace/userscripts" ]]; then
-    # Find all executable files, sorted alphabetically
-    mapfile -t userscripts < <(find /workspace/userscripts -maxdepth 1 -type f -executable | sort)
-
-    if [[ ${#userscripts[@]} -gt 0 ]]; then
-      log "Running user bootstrap scripts..."
-      for script_path in "${userscripts[@]}"; do
-        local script_name=$(basename "${script_path}")
-        log "→ ${script_name}"
-        if ! (cd "${WORKSPACE_HOME}" && "${script_path}"); then
-          log "ERROR: User script failed: ${script_name}"
-          return 1
-        fi
-      done
-    fi
   fi
 }
 

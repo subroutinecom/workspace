@@ -6,6 +6,7 @@ const fsExtra = require("fs-extra");
 const { runCommand } = require("./utils");
 
 const DEFAULT_CONFIG_FILENAME = ".workspace.yml";
+const USER_CONFIG_FILENAME = "config.yml";
 const PACKAGE_ROOT = path.resolve(__dirname, "..");
 const TEMPLATE_SOURCE = path.join(PACKAGE_ROOT, "workspace");
 
@@ -110,6 +111,98 @@ const loadConfig = async (configDir, filename = DEFAULT_CONFIG_FILENAME) => {
   return yaml.parse(contents);
 };
 
+const getUserConfigDir = () => {
+  return path.join(os.homedir(), ".workspaces");
+};
+
+const getUserConfigPath = () => {
+  return path.join(getUserConfigDir(), USER_CONFIG_FILENAME);
+};
+
+const ensureUserConfig = async () => {
+  const configDir = getUserConfigDir();
+  const configPath = getUserConfigPath();
+  const userScriptsDir = path.join(configDir, "userscripts");
+
+  await fsExtra.ensureDir(configDir);
+  await fsExtra.ensureDir(userScriptsDir);
+
+  if (!(await fsExtra.pathExists(configPath))) {
+    const defaultUserConfig = {
+      bootstrap: {
+        scripts: ["userscripts"],
+      },
+    };
+    await writeConfig(configDir, defaultUserConfig, { filename: USER_CONFIG_FILENAME });
+  }
+
+  const exampleScriptPath = path.join(userScriptsDir, "example.sh");
+  if (!(await fsExtra.pathExists(exampleScriptPath))) {
+    const exampleScript = `#!/bin/bash
+# Example user bootstrap script
+# This script runs in all workspaces after project-specific scripts
+echo "Hello from user bootstrap script!"
+`;
+    await fsExtra.writeFile(exampleScriptPath, exampleScript, "utf8");
+    await fsExtra.chmod(exampleScriptPath, 0o755);
+  }
+};
+
+const loadUserConfig = async () => {
+  const configPath = getUserConfigPath();
+  if (!(await fsExtra.pathExists(configPath))) {
+    return null;
+  }
+  const contents = await fsExtra.readFile(configPath, "utf8");
+  return yaml.parse(contents);
+};
+
+const mergeConfigs = (projectConfig, userConfig) => {
+  if (!userConfig) {
+    return projectConfig;
+  }
+
+  const merged = { ...projectConfig };
+
+  if (userConfig.forwards) {
+    merged.forwards = [
+      ...(merged.forwards || []),
+      ...(userConfig.forwards || []),
+    ];
+  }
+
+  if (userConfig.mounts) {
+    merged.mounts = [
+      ...(merged.mounts || []),
+      ...(userConfig.mounts || []),
+    ];
+  }
+
+  if (userConfig.bootstrap) {
+    const projectScripts = (projectConfig.bootstrap?.scripts || []).map(script => ({
+      path: script,
+      source: 'project'
+    }));
+    const userScripts = (userConfig.bootstrap?.scripts || []).map(script => ({
+      path: script,
+      source: 'user'
+    }));
+
+    merged.bootstrap = {
+      scripts: [...projectScripts, ...userScripts],
+    };
+  }
+
+  if (userConfig.repo) {
+    merged.repo = {
+      ...(merged.repo || {}),
+      ...(userConfig.repo || {}),
+    };
+  }
+
+  return merged;
+};
+
 const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) => {
   if (!config) {
     throw new Error("Invalid configuration");
@@ -156,7 +249,12 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
 
   const bootstrapScripts =
     config.bootstrap && Array.isArray(config.bootstrap.scripts)
-      ? config.bootstrap.scripts
+      ? config.bootstrap.scripts.map(script => {
+          if (typeof script === 'string') {
+            return { path: script, source: 'project' };
+          }
+          return script;
+        })
       : [];
 
   // Parse mount format: /host/path:/container/path[:ro|:rw]
@@ -241,6 +339,7 @@ const resolveConfig = async (config, configDir, { workspaceNameOverride } = {}) 
 
 module.exports = {
   DEFAULT_CONFIG_FILENAME,
+  USER_CONFIG_FILENAME,
   TEMPLATE_SOURCE,
   discoverRepoRoot,
   findWorkspaceDir,
@@ -249,4 +348,9 @@ module.exports = {
   loadConfig,
   resolveConfig,
   configExists,
+  getUserConfigDir,
+  getUserConfigPath,
+  ensureUserConfig,
+  loadUserConfig,
+  mergeConfigs,
 };

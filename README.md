@@ -23,7 +23,9 @@ workspace proxy        # Port forwarding (separate terminal)
 
 ## Configuration
 
-`.workspace.yml`:
+### Project Configuration
+
+`.workspace.yml` in your project:
 
 ```yaml
 repo:
@@ -44,11 +46,26 @@ mounts:
   - ~/data:/data:ro
 ```
 
-**Bootstrap scripts** run as `workspace` user with passwordless sudo. Project scripts run first, then global user scripts from `~/.workspaces/userscripts/`.
+### User Configuration
 
-**Mounts** format: `source:target[:mode]`. Relative paths resolve from config directory. Tilde expands to home. Note that by default workspace will volume mount your host $HOME in read-only mode at `/host/home`
+`~/.workspaces/config.yml` for user-specific settings across all workspaces:
 
-**Forwards** is used when you run `workspace proxy <name>`. It creates SSH tunnel for all ports.
+```yaml
+bootstrap:
+  scripts:
+    - userscripts  # Directory: runs all executable files alphabetically
+    # Or specify individual scripts:
+    # - userscripts/setup.sh
+    # - custom/my-script.sh
+```
+
+User config is automatically created on first run with `userscripts` directory reference. Paths are relative to `~/.workspaces/`. Directories auto-expand to run all executable files. Configuration is merged with project config - user bootstrap scripts run **after** project scripts.
+
+**Bootstrap scripts** run as `workspace` user with passwordless sudo.
+
+**Mounts** format: `source:target[:mode]`. Relative paths resolve from config directory. Tilde expands to home. By default workspace mounts your host $HOME at `/host/home` (read-only).
+
+**Forwards** creates SSH tunnels when running `workspace proxy <name>`.
 
 ## Commands
 
@@ -85,24 +102,6 @@ Commands run from project directory use that workspace. Or specify name from any
 - **Tools**: Git, GitHub CLI, ripgrep, fd-find, jq, curl, wget, rsync
 - **User**: `workspace` with passwordless sudo
 
-## State Structure
-
-```
-~/.workspaces/
-├── userscripts/           # Global bootstrap scripts (all workspaces)
-└── state/
-    ├── state.json         # SSH port allocation
-    └── <name>/
-        ├── ssh/           # ED25519 key pair
-        └── runtime.json   # Resolved config + SSH port
-```
-
-Each workspace gets:
-
-- Unique SSH port (auto-assigned starting at 4200)
-- ED25519 SSH key pair
-- 3 persistent volumes: `{name}-home`, `{name}-docker`, `{name}-cache`
-
 ## Key Features
 
 **Docker-in-Docker**: Full Docker available inside container. Shared BuildKit daemon across workspaces for efficient layer caching.
@@ -119,21 +118,34 @@ Each workspace gets:
 
 - `/workspace/source` - Project directory (read-only)
 - `/host/home` - Your home directory (read-only)
-- `/workspace/userscripts` - Global scripts
+- `/workspace/userconfig` - User config directory (`~/.workspaces/`)
 - Custom mounts from config
 
 ## User Scripts
 
-Add personal scripts to `~/.workspaces/userscripts/` - they run in all workspaces after project scripts.
+Add executable scripts to `~/.workspaces/userscripts/` - they run automatically in all workspaces:
 
-```bash
-# ~/.workspaces/userscripts/01-shell.sh
-#!/bin/bash
-cp /host/home/.zshrc ~/.zshrc
-cp -r /host/home/.config/nvim ~/.config/
+```yaml
+# ~/.workspaces/config.yml (auto-created on first run)
+bootstrap:
+  scripts:
+    - userscripts  # Runs all executable files in directory
 ```
 
-Scripts run alphabetically. See [examples/userscripts/](examples/userscripts/).
+Example script:
+
+```bash
+# ~/.workspaces/userscripts/setup-shell.sh
+#!/bin/bash
+echo "Setting up shell configuration..."
+cp /host/home/.zshrc ~/.zshrc
+```
+
+Make scripts executable: `chmod +x ~/.workspaces/userscripts/setup-shell.sh`
+
+**Directory expansion**: Point at a directory to run all executable files alphabetically. Or specify individual scripts for precise control.
+
+User scripts execute after project bootstrap scripts in the order listed.
 
 ## Testing
 
