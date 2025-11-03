@@ -1,6 +1,6 @@
 {
   "name": "@subroutinecom/workspace",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Self-contained CLI for spinning up Docker-in-Docker workspaces with SSH and proxy helpers.",
   "bin": {
     "workspace": "./dist/index.js"

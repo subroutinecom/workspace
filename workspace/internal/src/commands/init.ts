@@ -5,7 +5,7 @@ import { installDevTools } from "../lib/devtools";
 import { pathExists, readFileLines } from "../lib/fs";
 import { configureGitSshKey, copyGitConfig, ensureKnownHost } from "../lib/git";
 import { installLazyVim } from "../lib/lazyvim";
-import { runCommand } from "../lib/process";
+import { CommandError, runCommand } from "../lib/process";
 import { loadRuntimeConfig, type RuntimeConfig } from "../lib/runtime";
 import { configureShellHelpers } from "../lib/shell-helpers";
 
@@ -97,25 +97,51 @@ const cloneRepository = async (
   console.log("");
 
   await ensureKnownHost(workspaceHome, repoUrl);
-
+  const branchArgs = ["clone", ...cloneArgs, "--branch", repoBranch, repoUrl];
   const baseArgs = ["clone", ...cloneArgs, repoUrl];
   const hasBranchArg = cloneArgs.some((arg) => arg === "--branch" || arg === "-b" || arg.startsWith("--branch="));
-  const execClone = async (args: string[]) => runCommand("git", args, { cwd: workspaceHome, env: { ...process.env }, ignoreFailure: true });
 
-  let cloneResult;
-  if (!hasBranchArg) {
-    cloneResult = await execClone(["clone", ...cloneArgs, "--branch", repoBranch, repoUrl]);
-    if (cloneResult.code !== 0) {
-      cloneResult = await execClone(baseArgs);
+  let lastError: CommandError | null = null;
+  const attemptClone = async (args: string[], label: string): Promise<boolean> => {
+    console.log(`Attempting ${label}...`);
+    try {
+      await runCommand("git", args, { cwd: workspaceHome, env: { ...process.env } });
+      console.log(`${label} succeeded.`);
+      return true;
+    } catch (error) {
+      if (error instanceof CommandError) {
+        lastError = error;
+        console.log(`${label} failed with exit code ${error.code}.`);
+        if (error.stderr.trim()) {
+          console.log(error.stderr.trim());
+        }
+        return false;
+      }
+      throw error;
     }
-  } else {
-    cloneResult = await execClone(baseArgs);
+  };
+
+  let cloneSucceeded = false;
+  if (!hasBranchArg) {
+    const label = `git clone --branch ${repoBranch}`;
+    cloneSucceeded = await attemptClone(branchArgs, label);
+    if (!cloneSucceeded) {
+      console.log("Retrying clone without explicit branch flag...");
+    }
   }
 
-  if (cloneResult.code !== 0) {
-    console.log("Failed to clone repository. Ensure your SSH agent is forwarded or use HTTPS URL.");
-    return;
+  if (!cloneSucceeded) {
+    cloneSucceeded = await attemptClone(baseArgs, "git clone");
   }
+
+  if (!cloneSucceeded) {
+    console.log("Failed to clone repository. Ensure your SSH agent is forwarded or use HTTPS URL.");
+    if (lastError) {
+      throw lastError;
+    }
+    throw new Error("Failed to clone repository.");
+  }
+  console.log("Repository clone completed.");
 
   const repoName = repoUrl.replace(/\/+$/, "").split("/").pop() ?? "repo";
   const cleanRepoName = repoName.replace(/\.git$/, "");

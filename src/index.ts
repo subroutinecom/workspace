@@ -256,7 +256,7 @@ const assembleRunArgs = (
   return { runArgs, volumes };
 };
 
-const runInitScript = async (resolved: ResolvedWorkspaceConfig, logger: Logger): Promise<void> => {
+const runInitScript = async (resolved: ResolvedWorkspaceConfig, logger: Logger): Promise<string> => {
   const args = ["exec", "-u", "workspace", resolved.workspace.containerName, "/usr/local/bin/workspace-internal", "init"];
 
   const logsDir = path.join(os.homedir(), ".workspaces", "logs");
@@ -292,6 +292,7 @@ const runInitScript = async (resolved: ResolvedWorkspaceConfig, logger: Logger):
       }
     });
     fs.appendFileSync(logFile, `\n=== Workspace init completed ${new Date().toISOString()} ===\n`, "utf8");
+    return logFile;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fs.appendFileSync(logFile, `\n=== Workspace init failed ${new Date().toISOString()} ===\n${message}\n`, "utf8");
@@ -299,6 +300,25 @@ const runInitScript = async (resolved: ResolvedWorkspaceConfig, logger: Logger):
       error.message = `${error.message}\nSee logs: ${error.logFile}`;
     }
     throw error;
+  }
+};
+
+const verifyRepositoryClone = async (
+  resolved: ResolvedWorkspaceConfig,
+  logFile?: string,
+): Promise<void> => {
+  if (!resolved.workspace.repo.remote) {
+    return;
+  }
+  try {
+    await execInContainer(
+      resolved.workspace.containerName,
+      ["test", "-d", "/workspace/source/.git"],
+      { user: "workspace" },
+    );
+  } catch {
+    const suffix = logFile ? ` See logs: ${logFile}` : "";
+    throw new Error(`Workspace repository clone did not complete successfully.${suffix}`);
   }
 };
 
@@ -394,7 +414,8 @@ program
 
           if (!options.noInit && wsInfo.configInfo) {
             logger.update("Running initialization...");
-            await runInitScript(wsInfo.configInfo.resolved, logger);
+            const initLogPath = await runInitScript(wsInfo.configInfo.resolved, logger);
+            await verifyRepositoryClone(wsInfo.configInfo.resolved, initLogPath);
           }
 
           logger.succeed("Workspace started");
@@ -499,7 +520,8 @@ program
 
       if (!options.noInit) {
         logger.update("Running initialization...");
-        await runInitScript(resolved, logger);
+        const initLogPath = await runInitScript(resolved, logger);
+        await verifyRepositoryClone(resolved, initLogPath);
       }
 
       logger.succeed("Workspace is ready!");
