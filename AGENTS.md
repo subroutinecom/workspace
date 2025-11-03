@@ -31,6 +31,8 @@ Workspace CLI creates isolated Docker-in-Docker development environments with SS
 
 Run tests after implementing each feature - don't stop until tests are passing.
 
+A feature is only complete when both `yarn build` and `npm test` succeed.
+
 Run tests with `npm test` (Vitest). Tests use real Docker containers and verify actual behavior.
 
 When adding features:

@@ -21,6 +21,96 @@ interface State {
   sharedImage?: SharedImageState;
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object";
+
+const normalizeWorkspaceState = (
+  value: unknown,
+): WorkspaceState | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const sshPort = value.sshPort;
+  const forwards = value.forwards;
+  const configDir = value.configDir;
+  const selectedKey = value.selectedKey;
+
+  if (typeof sshPort !== "number" || !Number.isInteger(sshPort)) {
+    return undefined;
+  }
+
+  if (!Array.isArray(forwards) || forwards.some((item) => typeof item !== "number")) {
+    return undefined;
+  }
+
+  if (typeof configDir !== "string") {
+    return undefined;
+  }
+
+  if (
+    selectedKey !== undefined &&
+    selectedKey !== null &&
+    typeof selectedKey !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    sshPort,
+    forwards,
+    configDir,
+    selectedKey: selectedKey ?? null,
+  };
+};
+
+const normalizeSharedImageState = (
+  value: unknown,
+): SharedImageState | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const lastBuildAt = value.lastBuildAt;
+
+  if (lastBuildAt === undefined) {
+    return {};
+  }
+
+  if (typeof lastBuildAt !== "string") {
+    return undefined;
+  }
+
+  return {
+    lastBuildAt,
+  };
+};
+
+const normalizeState = (raw: unknown): State => {
+  if (!isRecord(raw)) {
+    return { workspaces: {}, sharedImage: {} };
+  }
+
+  const workspaces: Record<string, WorkspaceState> = {};
+
+  const rawWorkspaces = raw.workspaces;
+  if (isRecord(rawWorkspaces)) {
+    for (const [key, value] of Object.entries(rawWorkspaces)) {
+      const workspace = normalizeWorkspaceState(value);
+      if (workspace) {
+        workspaces[key] = workspace;
+      }
+    }
+  }
+
+  const sharedImage = normalizeSharedImageState(raw.sharedImage) ?? {};
+
+  return {
+    workspaces,
+    sharedImage,
+  };
+};
+
 const STATE_FILE = path.join(os.homedir(), ".workspaces", "state", "state.json");
 const DEFAULT_STATE: State = {
   workspaces: {},
@@ -30,14 +120,8 @@ const SSH_PORT_START = 2300;
 
 const loadState = async (): Promise<State> => {
   try {
-    const state = await fsExtra.readJson<State>(STATE_FILE);
-    if (!state.workspaces) {
-      state.workspaces = {};
-    }
-    if (!state.sharedImage) {
-      state.sharedImage = {};
-    }
-    return state;
+    const raw = await fsExtra.readJson(STATE_FILE);
+    return normalizeState(raw);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       return { workspaces: {}, sharedImage: {} };
