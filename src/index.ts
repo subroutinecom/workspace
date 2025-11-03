@@ -45,7 +45,13 @@ import {
   connectToNetwork,
   execInContainer,
 } from "./docker";
-import { ensureWorkspaceState, removeWorkspaceState, listWorkspaceNames } from "./state";
+import {
+  ensureWorkspaceState,
+  removeWorkspaceState,
+  listWorkspaceNames,
+  recordSharedImageBuild,
+  getLastSharedImageBuild,
+} from "./state";
 import { configureBuildxInContainer, ensureSharedBuildKit, waitForContainer, waitForDockerd } from "./buildkit";
 import { createLogger, confirmPrompt } from "./cli/ui";
 import { withConfig, getWorkspaceInfo, loadWorkspaceState } from "./workspace/context";
@@ -154,6 +160,8 @@ const writeRuntimeMetadata = async (
   await writeJson(resolved.workspace.state.runtimeConfigPath, runtimeData);
 };
 
+const SHARED_IMAGE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 const ensureImage = async (
   resolved: ResolvedWorkspaceConfig,
   { rebuild = false, noCache = false }: { rebuild?: boolean; noCache?: boolean } = {},
@@ -162,9 +170,22 @@ const ensureImage = async (
   const buildContext = resolved.workspace.buildContext;
 
   const imagePresent = await imageExists(imageTag);
-  if (!imagePresent || rebuild) {
+  let needsBuild = !imagePresent || rebuild;
+
+  if (!needsBuild) {
+    const lastBuild = await getLastSharedImageBuild();
+    if (!lastBuild) {
+      needsBuild = true;
+    } else if (Date.now() - lastBuild > SHARED_IMAGE_MAX_AGE_MS) {
+      console.log("Workspace image is stale. Rebuilding...");
+      needsBuild = true;
+    }
+  }
+
+  if (needsBuild) {
     console.log(`Building workspace image ${imageTag}...`);
     await buildImage(imageTag, buildContext, { noCache });
+    await recordSharedImageBuild();
   }
 };
 
@@ -377,6 +398,7 @@ program
     await buildImage(imageTag, TEMPLATE_SOURCE, {
       noCache: options.noCache,
     });
+    await recordSharedImageBuild();
   });
 
 program
@@ -1070,7 +1092,15 @@ program
     const packageName = pkg.name;
     try {
       await runCommandStreaming("npm", ["install", "-g", `${packageName}@latest`]);
-      console.log("\nUpdate complete!");
+      console.log("\nUpdate complete! Rebuilding shared workspace image...");
+      try {
+        await runCommandStreaming("workspace", ["build"]);
+        console.log("Shared workspace image rebuilt.");
+      } catch (buildError) {
+        const message = buildError instanceof Error ? buildError.message : String(buildError);
+        console.error("Workspace image rebuild failed:", message);
+        process.exitCode = 1;
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("Update failed:", message);

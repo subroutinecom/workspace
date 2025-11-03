@@ -12,22 +12,35 @@ export interface WorkspaceState {
   selectedKey?: string | null;
 }
 
+interface SharedImageState {
+  lastBuildAt?: string;
+}
+
 interface State {
   workspaces: Record<string, WorkspaceState>;
+  sharedImage?: SharedImageState;
 }
 
 const STATE_FILE = path.join(os.homedir(), ".workspaces", "state", "state.json");
 const DEFAULT_STATE: State = {
   workspaces: {},
+  sharedImage: {},
 };
 const SSH_PORT_START = 2300;
 
 const loadState = async (): Promise<State> => {
   try {
-    return await fsExtra.readJson(STATE_FILE);
+    const state = await fsExtra.readJson<State>(STATE_FILE);
+    if (!state.workspaces) {
+      state.workspaces = {};
+    }
+    if (!state.sharedImage) {
+      state.sharedImage = {};
+    }
+    return state;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return { workspaces: {} };
+      return { workspaces: {}, sharedImage: {} };
     }
     throw err;
   }
@@ -129,4 +142,30 @@ export const removeWorkspaceState = async (workspaceName: string): Promise<void>
 export const listWorkspaceNames = async (): Promise<string[]> => {
   const state = await loadState();
   return Object.keys(state.workspaces || {});
+};
+
+export const recordSharedImageBuild = async (date: Date = new Date()): Promise<void> => {
+  await withLock(async () => {
+    const state = await loadState();
+    if (!state.sharedImage) {
+      state.sharedImage = {};
+    }
+    state.sharedImage.lastBuildAt = date.toISOString();
+    await saveState(state);
+  });
+};
+
+export const getLastSharedImageBuild = async (): Promise<number | null> => {
+  return withLock(async () => {
+    const state = await loadState();
+    const iso = state.sharedImage?.lastBuildAt;
+    if (!iso) {
+      return null;
+    }
+    const parsed = Date.parse(iso);
+    if (Number.isNaN(parsed)) {
+      return null;
+    }
+    return parsed;
+  });
 };
