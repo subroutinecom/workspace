@@ -51,6 +51,8 @@ mounts:
 `~/.workspaces/config.yml` for user-specific settings across all workspaces:
 
 ```yaml
+mountAgentsCredentials: true
+
 ssh:
   # Default SSH key (optional - uses heuristic if not specified)
   defaultKey: ~/.ssh/id_ed25519
@@ -66,6 +68,8 @@ bootstrap:
 ```
 
 User config is automatically created on first run with `userscripts` directory reference. Paths are relative to `~/.workspaces/`. Directories auto-expand to run all executable files. Configuration is merged with project config - user bootstrap scripts run **after** project scripts.
+
+When `mountAgentsCredentials` is enabled (default), Workspace mounts the following credential files into every container when they exist on the host: `~/.codex/auth.json`, `~/.local/share/opencode/auth.json`, and `~/.claude/.credentials.json`. Set it to `false` to opt out.
 
 **SSH Configuration:**
 

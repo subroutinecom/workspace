@@ -29,6 +29,7 @@ export interface WorkspaceConfig {
   forwards?: ForwardInput[];
   mounts?: string[];
   bootstrap?: BootstrapConfig;
+  mountAgentsCredentials?: boolean;
   [key: string]: unknown;
 }
 
@@ -200,6 +201,7 @@ export const ensureUserConfig = async (): Promise<void> => {
       bootstrap: {
         scripts: ["userscripts"],
       },
+      mountAgentsCredentials: true,
     };
     await writeConfig(configDir, defaultUserConfig, { filename: USER_CONFIG_FILENAME });
   }
@@ -267,6 +269,10 @@ export const mergeConfigs = (
       ...(merged.repo || {}),
       ...(userConfig.repo || {}),
     };
+  }
+
+  if (typeof userConfig.mountAgentsCredentials === "boolean") {
+    merged.mountAgentsCredentials = userConfig.mountAgentsCredentials;
   }
 
   return merged;
@@ -371,6 +377,34 @@ export const resolveConfig = async (
         })
         .filter((mount): mount is ResolvedMount => mount !== null)
     : [];
+
+  if (config.mountAgentsCredentials !== false) {
+    const homeDir = os.homedir();
+    const credentialCandidates = [
+      {
+        source: path.join(homeDir, ".codex", "auth.json"),
+        target: "/home/workspace/.codex/auth.json",
+      },
+      {
+        source: path.join(homeDir, ".local", "share", "opencode", "auth.json"),
+        target: "/home/workspace/.local/share/opencode/auth.json",
+      },
+      {
+        source: path.join(homeDir, ".claude", ".credentials.json"),
+        target: "/home/workspace/.claude/.credentials.json",
+      },
+    ];
+
+    for (const credential of credentialCandidates) {
+      if (await fsExtra.pathExists(credential.source)) {
+        mounts.push({
+          source: credential.source,
+          target: credential.target,
+          mode: "rw",
+        });
+      }
+    }
+  }
 
   const sshDir = path.join(stateDir, "ssh");
   const keyPath = path.join(sshDir, "id_ed25519");
