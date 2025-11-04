@@ -79,18 +79,26 @@ interface FindWorkspaceOptions {
   path?: string;
 }
 
-export const discoverRepoRoot = async (cwd: string = process.cwd()): Promise<string> => {
+export const discoverRepoRoot = async (
+  cwd: string = process.cwd(),
+): Promise<string> => {
   try {
-    const { stdout } = await runCommand("git", ["rev-parse", "--show-toplevel"], {
-      cwd,
-    });
+    const { stdout } = await runCommand(
+      "git",
+      ["rev-parse", "--show-toplevel"],
+      {
+        cwd,
+      },
+    );
     return stdout || cwd;
   } catch {
     return cwd;
   }
 };
 
-export const findWorkspaceDir = async (options: FindWorkspaceOptions = {}): Promise<string> => {
+export const findWorkspaceDir = async (
+  options: FindWorkspaceOptions = {},
+): Promise<string> => {
   const startDir = options.path ? path.resolve(options.path) : process.cwd();
   const repoRoot = await discoverRepoRoot(startDir);
   const homeDir = os.homedir();
@@ -103,7 +111,11 @@ export const findWorkspaceDir = async (options: FindWorkspaceOptions = {}): Prom
       return currentDir;
     }
 
-    if (currentDir === repoRoot || currentDir === homeDir || currentDir === "/") {
+    if (
+      currentDir === repoRoot ||
+      currentDir === homeDir ||
+      currentDir === "/"
+    ) {
       break;
     }
 
@@ -122,9 +134,13 @@ export const findWorkspaceDir = async (options: FindWorkspaceOptions = {}): Prom
 
 const getGitRemote = async (configDir: string): Promise<string> => {
   try {
-    const { stdout } = await runCommand("git", ["config", "--get", "remote.origin.url"], {
-      cwd: configDir,
-    });
+    const { stdout } = await runCommand(
+      "git",
+      ["config", "--get", "remote.origin.url"],
+      {
+        cwd: configDir,
+      },
+    );
     return stdout || "";
   } catch {
     return "";
@@ -133,16 +149,22 @@ const getGitRemote = async (configDir: string): Promise<string> => {
 
 const getGitBranch = async (configDir: string): Promise<string> => {
   try {
-    const { stdout } = await runCommand("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      cwd: configDir,
-    });
+    const { stdout } = await runCommand(
+      "git",
+      ["rev-parse", "--abbrev-ref", "HEAD"],
+      {
+        cwd: configDir,
+      },
+    );
     return stdout || "main";
   } catch {
     return "main";
   }
 };
 
-export const buildDefaultConfig = async (configDir: string): Promise<WorkspaceConfig> => {
+export const buildDefaultConfig = async (
+  configDir: string,
+): Promise<WorkspaceConfig> => {
   const remote = await getGitRemote(configDir);
   const branch = await getGitBranch(configDir);
 
@@ -165,7 +187,10 @@ export const writeConfig = async (
   config: WorkspaceConfig,
   options: { filename?: string } = {},
 ): Promise<string> => {
-  const configPath = path.join(configDir, options.filename || DEFAULT_CONFIG_FILENAME);
+  const configPath = path.join(
+    configDir,
+    options.filename || DEFAULT_CONFIG_FILENAME,
+  );
   const yamlContents = yaml.stringify(config, { indent: 2 });
   await fsExtra.writeFile(configPath, yamlContents, "utf8");
   return configPath;
@@ -201,9 +226,11 @@ export const ensureUserConfig = async (): Promise<void> => {
       bootstrap: {
         scripts: ["userscripts"],
       },
-      mountAgentsCredentials: false,
+      mountAgentsCredentials: true,
     };
-    await writeConfig(configDir, defaultUserConfig, { filename: USER_CONFIG_FILENAME });
+    await writeConfig(configDir, defaultUserConfig, {
+      filename: USER_CONFIG_FILENAME,
+    });
   }
 
   const exampleScriptPath = path.join(userScriptsDir, "example.sh");
@@ -238,7 +265,10 @@ export const mergeConfigs = (
   const merged: WorkspaceConfig = { ...projectConfig };
 
   if (userConfig.forwards) {
-    merged.forwards = [...(merged.forwards || []), ...(userConfig.forwards || [])];
+    merged.forwards = [
+      ...(merged.forwards || []),
+      ...(userConfig.forwards || []),
+    ];
   }
 
   if (userConfig.mounts) {
@@ -253,18 +283,22 @@ export const mergeConfigs = (
       return [];
     };
 
-    const projectScripts = normalizeScripts(projectConfig.bootstrap?.scripts).map((script) => {
+    const projectScripts = normalizeScripts(
+      projectConfig.bootstrap?.scripts,
+    ).map((script) => {
       if (typeof script === "string") {
         return { path: script, source: "project" };
       }
       return { path: script.path, source: script.source || "project" };
     });
-    const userScripts = normalizeScripts(userConfig.bootstrap?.scripts).map((script) => {
-      if (typeof script === "string") {
-        return { path: script, source: "user" };
-      }
-      return { path: script.path, source: script.source || "user" };
-    });
+    const userScripts = normalizeScripts(userConfig.bootstrap?.scripts).map(
+      (script) => {
+        if (typeof script === "string") {
+          return { path: script, source: "user" };
+        }
+        return { path: script.path, source: script.source || "user" };
+      },
+    );
 
     merged.bootstrap = {
       scripts: [...projectScripts, ...userScripts],
@@ -280,6 +314,9 @@ export const mergeConfigs = (
 
   if (typeof userConfig.mountAgentsCredentials === "boolean") {
     merged.mountAgentsCredentials = userConfig.mountAgentsCredentials;
+  } else if (typeof merged.mountAgentsCredentials !== "boolean") {
+    // Don't assume it should be done if user doens't have it in config
+    merged.mountAgentsCredentials = false;
   }
 
   return merged;
@@ -311,10 +348,20 @@ export const resolveConfig = async (
           if (typeof forward === "number") {
             return forward;
           }
-          if (typeof forward === "string" && (forward.includes("-") || forward.includes(":"))) {
+          if (
+            typeof forward === "string" &&
+            (forward.includes("-") || forward.includes(":"))
+          ) {
             const separator = forward.includes(":") ? ":" : "-";
-            const [start, end] = forward.split(separator).map((s) => Number.parseInt(s.trim(), 10));
-            if (!Number.isNaN(start) && !Number.isNaN(end) && start <= end && start > 0) {
+            const [start, end] = forward
+              .split(separator)
+              .map((s) => Number.parseInt(s.trim(), 10));
+            if (
+              !Number.isNaN(start) &&
+              !Number.isNaN(end) &&
+              start <= end &&
+              start > 0
+            ) {
               const range: number[] = [];
               for (let port = start; port <= end; port++) {
                 range.push(port);
@@ -328,7 +375,10 @@ export const resolveConfig = async (
           }
           return null;
         })
-        .filter((port): port is number => port != null && !Number.isNaN(port) && port > 0)
+        .filter(
+          (port): port is number =>
+            port != null && !Number.isNaN(port) && port > 0,
+        )
     : [];
 
   const bootstrapScripts: ResolvedBootstrapScript[] =
@@ -385,7 +435,7 @@ export const resolveConfig = async (
         .filter((mount): mount is ResolvedMount => mount !== null)
     : [];
 
-  if (config.mountAgentsCredentials === true) {
+  if (config.mountAgentsCredentials !== false) {
     const homeDir = os.homedir();
     const credentialCandidates = [
       {
