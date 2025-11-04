@@ -40,7 +40,13 @@ describe("Agent credential mounts", () => {
     fs.mkdirSync(path.dirname(claudeHostPath()), { recursive: true });
     fs.writeFileSync(claudeHostPath(), '{"token":"claude"}', "utf8");
 
-    await createTestWorkspace(workspaceName, {}, {});
+    await createTestWorkspace(
+      workspaceName,
+      {
+        mountAgentsCredentials: true,
+      },
+      {},
+    );
     startWorkspace(workspaceName);
   });
 

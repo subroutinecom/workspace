@@ -201,7 +201,7 @@ export const ensureUserConfig = async (): Promise<void> => {
       bootstrap: {
         scripts: ["userscripts"],
       },
-      mountAgentsCredentials: true,
+      mountAgentsCredentials: false,
     };
     await writeConfig(configDir, defaultUserConfig, { filename: USER_CONFIG_FILENAME });
   }
@@ -378,7 +378,7 @@ export const resolveConfig = async (
         .filter((mount): mount is ResolvedMount => mount !== null)
     : [];
 
-  if (config.mountAgentsCredentials !== false) {
+  if (config.mountAgentsCredentials === true) {
     const homeDir = os.homedir();
     const credentialCandidates = [
       {
