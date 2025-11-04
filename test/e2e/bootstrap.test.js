@@ -36,7 +36,7 @@ echo "Script 4 executed" >> /home/workspace/bootstrap.log
     };
 
     await workspace.create({}, scripts);
-    await workspace.start({ forceRecreate: true });
+    await workspace.start();
 
     const orderFile = workspace.readFile('/home/workspace/order.txt');
     const lines = orderFile.split('\n').filter((l) => l.trim());

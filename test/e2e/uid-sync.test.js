@@ -1,11 +1,11 @@
-import { describe, expect } from 'vitest';
+import { describe, expect, beforeAll } from 'vitest';
 import { test } from '../fixtures/workspace.js';
 import os from 'os';
 import path from 'path';
 import fs from 'fs-extra';
 
 describe('UID/GID Synchronization E2E', () => {
-  test('workspace user syncs with host UID/GID', async ({ workspace }) => {
+  test('basic uid/gid sync and file ownership', async ({ workspace }) => {
     await workspace.create({});
     await workspace.start();
 
@@ -17,6 +17,14 @@ describe('UID/GID Synchronization E2E', () => {
 
     expect(parseInt(workspaceUid)).toBe(hostUid);
     expect(parseInt(workspaceGid)).toBe(hostGid);
+
+    workspace.exec('cp /host/home/.bashrc /home/workspace/.bashrc-copy');
+
+    const owner = workspace.exec('stat -c "%U" /home/workspace/.bashrc-copy').trim();
+    expect(owner).toBe('workspace');
+
+    const uid = workspace.exec('stat -c "%u" /home/workspace/.bashrc-copy').trim();
+    expect(parseInt(uid)).toBe(hostUid);
   });
 
   test('mounted credentials from host are readable', async ({ workspace }) => {
@@ -42,20 +50,6 @@ describe('UID/GID Synchronization E2E', () => {
     }
   });
 
-  test('files copied from /host/home are owned by workspace user', async ({ workspace }) => {
-    await workspace.create({});
-    await workspace.start();
-
-    workspace.exec('cp /host/home/.bashrc /home/workspace/.bashrc-copy');
-
-    const owner = workspace.exec('stat -c "%U" /home/workspace/.bashrc-copy').trim();
-    expect(owner).toBe('workspace');
-
-    const uid = workspace.exec('stat -c "%u" /home/workspace/.bashrc-copy').trim();
-    const hostUid = process.getuid();
-    expect(parseInt(uid)).toBe(hostUid);
-  });
-
   test('bootstrap scripts can copy files without sudo', async ({ workspace }) => {
     const scripts = {
       'copy-from-host.sh': `#!/bin/bash
@@ -67,7 +61,7 @@ echo "uid=$(stat -c "%u" /home/workspace/copied.bashrc)" >> /home/workspace/copy
     };
 
     await workspace.create({}, scripts);
-    await workspace.start({ forceRecreate: true });
+    await workspace.start();
 
     const copyTest = workspace.readFile('/home/workspace/copy-test.txt');
     expect(copyTest).toContain('owner=workspace');

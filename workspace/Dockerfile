@@ -121,6 +121,10 @@ ENV BUN_INSTALL=/usr/local
 RUN bash -lc "curl -fsSL https://bun.sh/install | bash" \
   && bun --version
 
+RUN curl -fsSL https://deno.land/install.sh | sh \
+  && mv /root/.deno/bin/deno /usr/local/bin/deno \
+  && deno --version
+
 # Create workspace user with passwordless sudo
 RUN useradd -m -s /bin/bash workspace \
   && echo "workspace:workspace" | chpasswd \
