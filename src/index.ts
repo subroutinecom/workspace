@@ -9,14 +9,7 @@ import pkg from "../package.json";
 import type { ResolvedWorkspaceConfig } from "./config";
 import type { WorkspaceState } from "./state";
 import type { Logger } from "./cli/ui";
-import {
-  discoverRepoRoot,
-  buildDefaultConfig,
-  writeConfig,
-  configExists,
-  DEFAULT_CONFIG_FILENAME,
-  TEMPLATE_SOURCE,
-} from "./config";
+import { buildDefaultConfig, writeConfig, configExists, DEFAULT_CONFIG_FILENAME, TEMPLATE_SOURCE } from "./config";
 import {
   runCommand,
   runCommandStreaming,
@@ -44,11 +37,11 @@ import {
   createVolume,
   connectToNetwork,
   execInContainer,
+  listRunningWorkspaceContainers,
 } from "./docker";
 import {
   ensureWorkspaceState,
   removeWorkspaceState,
-  listWorkspaceNames,
   recordSharedImageBuild,
   getLastSharedImageBuild,
 } from "./state";
@@ -645,13 +638,12 @@ program
   .description("List all available workspaces")
   .option("--path <path>", "list workspaces in a specific repository path")
   .action(async (options) => {
-    const startDir = options.path ? path.resolve(options.path) : await discoverRepoRoot(process.cwd());
+    let allowedWorkspaces: Set<string> | null = null;
 
-    const workspaceSet = new Set();
-
-    // Search for directories containing .workspace.yml
     const findWorkspaces = async (dir: string, maxDepth = 3, currentDepth = 0): Promise<void> => {
-      if (currentDepth > maxDepth) return;
+      if (!allowedWorkspaces || currentDepth > maxDepth) {
+        return;
+      }
 
       try {
         const entries = await fs.promises.readdir(dir, { withFileTypes: true });
@@ -661,36 +653,43 @@ program
             const entryPath = path.join(dir, entry.name);
             const configPath = path.join(entryPath, DEFAULT_CONFIG_FILENAME);
 
-            if (
-              await fs.promises
-                .access(configPath)
-                .then(() => true)
-                .catch(() => false)
-            ) {
-              workspaceSet.add(entry.name);
+            const hasConfig = await fs.promises
+              .access(configPath)
+              .then(() => true)
+              .catch(() => false);
+
+            if (hasConfig) {
+              allowedWorkspaces.add(entry.name);
             }
 
-            // Recursively search subdirectories
             await findWorkspaces(entryPath, maxDepth, currentDepth + 1);
           }
         }
-      } catch (err) {}
+      } catch {}
     };
 
-    await findWorkspaces(startDir);
+    if (options.path) {
+      allowedWorkspaces = new Set();
+      await findWorkspaces(path.resolve(options.path));
+    }
 
-    const stateWorkspaces = await listWorkspaceNames();
-    stateWorkspaces.forEach((name) => workspaceSet.add(name));
+    const containerNames = await listRunningWorkspaceContainers();
+    const runningWorkspaces = containerNames
+      .map((name) => name.replace(/^workspace-/, ""))
+      .filter((name) => name.length > 0);
 
-    const workspaces = Array.from(workspaceSet).sort();
+    const filteredWorkspaces = allowedWorkspaces
+      ? runningWorkspaces.filter((name) => allowedWorkspaces?.has(name))
+      : runningWorkspaces;
+
+    const workspaces = Array.from(new Set(filteredWorkspaces)).sort();
 
     if (workspaces.length === 0) {
-      console.log("No workspaces found.");
-      console.log(`Create one with: workspace init <name>`);
+      console.log("No running workspaces.");
       return;
     }
 
-    console.log(`Found ${workspaces.length} workspace(s):\n`);
+    console.log(`Running ${workspaces.length} workspace(s):\n`);
     for (const workspace of workspaces) {
       console.log(`  ${workspace}`);
     }

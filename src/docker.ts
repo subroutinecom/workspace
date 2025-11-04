@@ -65,6 +65,22 @@ export const containerRunning = async (name: string): Promise<boolean> => {
   return stdout.trim().length > 0;
 };
 
+export const listRunningWorkspaceContainers = async (): Promise<string[]> => {
+  const { stdout } = await dockerCommand([
+    "ps",
+    "--filter",
+    "status=running",
+    "--filter",
+    "name=^workspace-",
+    "--format",
+    "{{.Names}}",
+  ]);
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+};
+
 interface RunContainerOptions extends DockerStreamingOptions {
   quiet?: boolean;
 }
