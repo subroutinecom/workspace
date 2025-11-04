@@ -6,7 +6,7 @@
     "workspace": "./dist/index.js"
   },
   "scripts": {
-    "build": "rm -rf ./dist && tsc",
+    "build": "rm -rf ./dist && tsc && chmod +x dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
