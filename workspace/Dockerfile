@@ -145,15 +145,6 @@ USER workspace
 
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-RUN ARCH=$(dpkg --print-architecture) \
-  && if [ "$ARCH" = "amd64" ]; then OPENCODE_ARCH="x64"; else OPENCODE_ARCH="arm64"; fi \
-  && curl -fsSL "https://github.com/sst/opencode/releases/latest/download/opencode-linux-${OPENCODE_ARCH}.zip" -o /tmp/opencode.zip \
-  && unzip -q /tmp/opencode.zip -d /tmp/opencode \
-  && sudo mv /tmp/opencode/opencode /usr/local/bin/opencode \
-  && sudo chmod +x /usr/local/bin/opencode \
-  && rm -rf /tmp/opencode.zip /tmp/opencode \
-  && opencode --version
-
 USER root
 
 RUN mkdir -p /home/workspace /workspace/config /workspace/template /workspace/source \
