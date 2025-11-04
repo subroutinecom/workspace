@@ -1,56 +1,39 @@
-import { describe, expect, beforeAll } from 'vitest';
+import { describe, expect, beforeAll, afterAll } from 'vitest';
 import { test } from '../fixtures/workspace.js';
 import os from 'os';
 import path from 'path';
 import fs from 'fs-extra';
+import {
+  createTestWorkspace,
+  startWorkspace,
+  cleanupTestWorkspace,
+  execInWorkspace,
+  fileExistsInWorkspace,
+  readFileInWorkspace,
+  stopWorkspace,
+  generateTestWorkspaceName,
+} from '../helpers/workspace-utils.js';
 
 describe('UID/GID Synchronization E2E', () => {
-  test('basic uid/gid sync and file ownership', async ({ workspace }) => {
-    await workspace.create({});
-    await workspace.start();
+  let workspaceName;
+  let testCredsDir;
+  let testCredsFile;
+  let testCredsRwDir;
+  let testCredsRwFile;
 
-    const hostUid = process.getuid();
-    const hostGid = process.getgid();
+  beforeAll(async () => {
+    workspaceName = generateTestWorkspaceName('uid-sync');
 
-    const workspaceUid = workspace.exec('id -u workspace').trim();
-    const workspaceGid = workspace.exec('id -g workspace').trim();
-
-    expect(parseInt(workspaceUid)).toBe(hostUid);
-    expect(parseInt(workspaceGid)).toBe(hostGid);
-
-    workspace.exec('cp /host/home/.bashrc /home/workspace/.bashrc-copy');
-
-    const owner = workspace.exec('stat -c "%U" /home/workspace/.bashrc-copy').trim();
-    expect(owner).toBe('workspace');
-
-    const uid = workspace.exec('stat -c "%u" /home/workspace/.bashrc-copy').trim();
-    expect(parseInt(uid)).toBe(hostUid);
-  });
-
-  test('mounted credentials from host are readable', async ({ workspace }) => {
-    const testCredsDir = path.join(os.homedir(), '.test-workspace-creds');
-    const testCredsFile = path.join(testCredsDir, 'test-secret.txt');
+    testCredsDir = path.join(os.homedir(), '.test-workspace-creds');
+    testCredsFile = path.join(testCredsDir, 'test-secret.txt');
+    testCredsRwDir = path.join(os.homedir(), '.test-workspace-creds-rw');
+    testCredsRwFile = path.join(testCredsRwDir, 'writable.txt');
 
     await fs.ensureDir(testCredsDir);
     await fs.writeFile(testCredsFile, 'secret-content', { mode: 0o600 });
+    await fs.ensureDir(testCredsRwDir);
+    await fs.writeFile(testCredsRwFile, 'initial', { mode: 0o600 });
 
-    try {
-      await workspace.create({
-        mounts: [`${testCredsDir}:/home/workspace/.test-creds:ro`]
-      });
-      await workspace.start();
-
-      const content = workspace.exec('cat /home/workspace/.test-creds/test-secret.txt').trim();
-      expect(content).toBe('secret-content');
-
-      const canRead = workspace.exec('test -r /home/workspace/.test-creds/test-secret.txt && echo "yes" || echo "no"').trim();
-      expect(canRead).toBe('yes');
-    } finally {
-      await fs.remove(testCredsDir);
-    }
-  });
-
-  test('bootstrap scripts can copy files without sudo', async ({ workspace }) => {
     const scripts = {
       'copy-from-host.sh': `#!/bin/bash
 set -e
@@ -60,51 +43,65 @@ echo "uid=$(stat -c "%u" /home/workspace/copied.bashrc)" >> /home/workspace/copy
 `
     };
 
-    await workspace.create({}, scripts);
-    await workspace.start();
+    await createTestWorkspace(
+      workspaceName,
+      {
+        mounts: [
+          `${testCredsDir}:/home/workspace/.test-creds:ro`,
+          `${testCredsRwDir}:/home/workspace/.test-creds-rw:rw`
+        ]
+      },
+      scripts
+    );
+    startWorkspace(workspaceName);
+  });
 
-    const copyTest = workspace.readFile('/home/workspace/copy-test.txt');
+  afterAll(async () => {
+    await cleanupTestWorkspace(workspaceName);
+    await fs.remove(testCredsDir);
+    await fs.remove(testCredsRwDir);
+  });
+
+  test('uid/gid sync, file ownership, restart, mounts, and bootstrap', () => {
+    const hostUid = process.getuid();
+    const hostGid = process.getgid();
+
+    const workspaceUid = execInWorkspace(workspaceName, 'id -u workspace').trim();
+    const workspaceGid = execInWorkspace(workspaceName, 'id -g workspace').trim();
+
+    expect(parseInt(workspaceUid)).toBe(hostUid);
+    expect(parseInt(workspaceGid)).toBe(hostGid);
+
+    execInWorkspace(workspaceName, 'cp /host/home/.bashrc /home/workspace/.bashrc-copy');
+
+    const owner = execInWorkspace(workspaceName, 'stat -c "%U" /home/workspace/.bashrc-copy').trim();
+    expect(owner).toBe('workspace');
+
+    const uid = execInWorkspace(workspaceName, 'stat -c "%u" /home/workspace/.bashrc-copy').trim();
+    expect(parseInt(uid)).toBe(hostUid);
+
+    const content = execInWorkspace(workspaceName, 'cat /home/workspace/.test-creds/test-secret.txt').trim();
+    expect(content).toBe('secret-content');
+
+    const canRead = execInWorkspace(workspaceName, 'test -r /home/workspace/.test-creds/test-secret.txt && echo "yes" || echo "no"').trim();
+    expect(canRead).toBe('yes');
+
+    execInWorkspace(workspaceName, 'bash -c "echo modified > /home/workspace/.test-creds-rw/writable.txt"');
+
+    const hostContent = fs.readFileSync(testCredsRwFile, 'utf8');
+    expect(hostContent.trim()).toBe('modified');
+
+    const copyTest = readFileInWorkspace(workspaceName, '/home/workspace/copy-test.txt');
     expect(copyTest).toContain('owner=workspace');
     expect(copyTest).toContain(`uid=${process.getuid()}`);
 
-    const copied = workspace.fileExists('/home/workspace/copied.bashrc');
+    const copied = fileExistsInWorkspace(workspaceName, '/home/workspace/copied.bashrc');
     expect(copied).toBe(true);
-  });
 
-  test('uid sync persists across container restarts', async ({ workspace }) => {
-    await workspace.create({});
-    await workspace.start();
+    stopWorkspace(workspaceName);
+    startWorkspace(workspaceName);
 
-    const hostUid = process.getuid();
-    const firstUid = workspace.exec('id -u workspace').trim();
-    expect(parseInt(firstUid)).toBe(hostUid);
-
-    await workspace.stop();
-    await workspace.start();
-
-    const secondUid = workspace.exec('id -u workspace').trim();
+    const secondUid = execInWorkspace(workspaceName, 'id -u workspace').trim();
     expect(parseInt(secondUid)).toBe(hostUid);
-  });
-
-  test('writable credential mounts work correctly', async ({ workspace }) => {
-    const testCredsDir = path.join(os.homedir(), '.test-workspace-creds-rw');
-    const testCredsFile = path.join(testCredsDir, 'writable.txt');
-
-    await fs.ensureDir(testCredsDir);
-    await fs.writeFile(testCredsFile, 'initial', { mode: 0o600 });
-
-    try {
-      await workspace.create({
-        mounts: [`${testCredsDir}:/home/workspace/.test-creds-rw:rw`]
-      });
-      await workspace.start();
-
-      workspace.exec('bash -c "echo modified > /home/workspace/.test-creds-rw/writable.txt"');
-
-      const hostContent = await fs.readFile(testCredsFile, 'utf8');
-      expect(hostContent.trim()).toBe('modified');
-    } finally {
-      await fs.remove(testCredsDir);
-    }
   });
 });

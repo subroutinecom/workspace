@@ -1,8 +1,11 @@
 import { describe, expect } from 'vitest';
 import { test } from '../fixtures/workspace.js';
+import fs from 'fs-extra';
+import path from 'path';
+import { execSync } from 'child_process';
 
 describe('Bootstrap Scripts E2E', () => {
-  test('should execute bootstrap scripts with full functionality', async ({ workspace }) => {
+  test('bootstrap scripts - execution, restart, and error handling', async ({ workspace }) => {
     const scripts = {
       '01-first.sh': `#!/bin/bash
 set -e
@@ -35,7 +38,11 @@ echo "Script 4 executed" >> /home/workspace/bootstrap.log
 `,
     };
 
-    await workspace.create({}, scripts);
+    const workspaceDir = await workspace.create({}, scripts);
+
+    await fs.writeFile(path.join(workspaceDir, 'scripts', 'nonexec.sh'), `#!/bin/bash\necho "This should not run"\n`);
+    await fs.chmod(path.join(workspaceDir, 'scripts', 'nonexec.sh'), 0o644);
+
     await workspace.start();
 
     const orderFile = workspace.readFile('/home/workspace/order.txt');
@@ -71,37 +78,32 @@ echo "Script 4 executed" >> /home/workspace/bootstrap.log
 
     const linesAfterRestart = afterRestart.split('\n').filter((l) => l.trim());
     expect(linesAfterRestart).toHaveLength(3);
-  });
 
-  test('should handle missing script gracefully', async ({ workspace }) => {
-    await workspace.create(
-      {
-        bootstrap: {
-          scripts: ['scripts/nonexistent.sh'],
-        },
-      },
-      {}
-    );
+    const containerName = `workspace-${workspace.name}`;
+    const missingScriptConfig = path.join(workspaceDir, '.workspace-missing.yml');
+    await fs.writeFile(missingScriptConfig, `bootstrap:\n  scripts:\n    - scripts/nonexistent.sh\n`);
 
-    await expect(() => workspace.start()).rejects.toThrow();
-  });
+    let missingScriptError = null;
+    try {
+      execSync(`cd ${workspaceDir} && node ${path.join(__dirname, '../../dist/index.js')} start --config .workspace-missing.yml --force-recreate`, {
+        stdio: 'pipe',
+      });
+    } catch (err) {
+      missingScriptError = err;
+    }
+    expect(missingScriptError).not.toBeNull();
 
-  test('should handle non-executable script gracefully', async ({ workspace }) => {
-    const fs = await import('fs-extra');
-    const path = await import('path');
+    const nonexecConfig = path.join(workspaceDir, '.workspace-nonexec.yml');
+    await fs.writeFile(nonexecConfig, `bootstrap:\n  scripts:\n    - scripts/nonexec.sh\n`);
 
-    const workspaceDir = await workspace.create(
-      {},
-      {
-        'test.sh': `#!/bin/bash
-echo "This should not run"
-`,
-      }
-    );
-
-    const scriptPath = path.join(workspaceDir, 'scripts', 'test.sh');
-    await fs.chmod(scriptPath, 0o644);
-
-    await expect(() => workspace.start()).rejects.toThrow();
+    let nonexecError = null;
+    try {
+      execSync(`cd ${workspaceDir} && node ${path.join(__dirname, '../../dist/index.js')} start --config .workspace-nonexec.yml --force-recreate`, {
+        stdio: 'pipe',
+      });
+    } catch (err) {
+      nonexecError = err;
+    }
+    expect(nonexecError).not.toBeNull();
   });
 });
