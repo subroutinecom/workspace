@@ -246,13 +246,20 @@ export const mergeConfigs = (
   }
 
   if (userConfig.bootstrap) {
-    const projectScripts = (projectConfig.bootstrap?.scripts || []).map((script) => {
+    const normalizeScripts = (scripts: any) => {
+      if (!scripts) return [];
+      if (typeof scripts === "string") return [scripts];
+      if (Array.isArray(scripts)) return scripts;
+      return [];
+    };
+
+    const projectScripts = normalizeScripts(projectConfig.bootstrap?.scripts).map((script) => {
       if (typeof script === "string") {
         return { path: script, source: "project" };
       }
       return { path: script.path, source: script.source || "project" };
     });
-    const userScripts = (userConfig.bootstrap?.scripts || []).map((script) => {
+    const userScripts = normalizeScripts(userConfig.bootstrap?.scripts).map((script) => {
       if (typeof script === "string") {
         return { path: script, source: "user" };
       }
