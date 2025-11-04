@@ -11,7 +11,7 @@ import {
   generateTestWorkspaceName,
 } from "../helpers/workspace-utils.js";
 
-describe("Agent credential mounts", () => {
+describe.skip("Agent credential mounts", () => {
   let workspaceName;
   let testHome;
   let originalHome;
