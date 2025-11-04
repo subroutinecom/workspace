@@ -42,7 +42,7 @@ const resolveOpencodeArch = async () => {
 };
 
 const ensureOpencode = async () => {
-  const versionCheck = await runCommand("opencode", ["--version"], { ignoreFailure: true });
+  const versionCheck = await runCommand("which", ["opencode"], { ignoreFailure: true });
   const installing = versionCheck.code !== 0;
   console.log(installing ? "Installing opencode..." : "Updating opencode...");
   const arch = await resolveOpencodeArch();
@@ -55,15 +55,24 @@ const ensureOpencode = async () => {
     'unzip -q "$tmp/opencode.zip" -d "$tmp/opencode"',
     'sudo install -m 0755 "$tmp/opencode/opencode" /usr/local/bin/opencode',
   ].join("\n");
-  const installResult = await runCommand("bash", ["-lc", script], { ignoreFailure: true });
+  const installResult = await runCommand("bash", ["-c", script], { ignoreFailure: true });
   if (installResult.code === 0) {
-    const verify = await runCommand("opencode", ["--version"], { ignoreFailure: true });
+    const verify = await runCommand("which", ["opencode"], { ignoreFailure: true });
     if (verify.code === 0) {
-      console.log(`✓ opencode ${verify.stdout.trim()} ready.`);
+      const version = await runCommand("/usr/local/bin/opencode", ["--version"], { ignoreFailure: true });
+      if (version.code === 0) {
+        console.log(`✓ opencode ${version.stdout.trim()} ready.`);
+      } else {
+        console.log("✓ opencode installed.");
+      }
     } else {
       console.log("✓ opencode installed.");
     }
     return;
   }
-  console.log("WARNING: Failed to install opencode.");
+  if (installResult.stderr.trim()) {
+    console.log(`WARNING: Failed to install opencode: ${installResult.stderr.trim()}`);
+  } else {
+    console.log("WARNING: Failed to install opencode.");
+  }
 };

@@ -222,6 +222,13 @@ const assembleRunArgs = (
   addEnv("WORKSPACE_ASSIGNED_SSH_PORT", runtime.sshPort);
   addEnv("WORKSPACE_REPO_URL", resolved.workspace.repo.remote);
   addEnv("WORKSPACE_REPO_BRANCH", resolved.workspace.repo.branch);
+  if (process.getuid) {
+    addEnv("HOST_UID", process.getuid());
+  }
+  if (process.getgid) {
+    addEnv("HOST_GID", process.getgid());
+  }
+  addEnv("HOST_USERNAME", process.env.USER || "unknown");
   if (runtime.selectedKey) {
     addEnv("WORKSPACE_SELECTED_SSH_KEY", runtime.selectedKey);
   }
