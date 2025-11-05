@@ -194,4 +194,49 @@ export const getListeningPorts = async (): Promise<Set<number>> => {
   }
 };
 
+export const rotateLogsInDirectory = async (logsDir: string, maxAgeDays = 7, maxFiles = 50): Promise<void> => {
+  try {
+    if (!fs.existsSync(logsDir)) {
+      return;
+    }
+
+    const files = await fsExtra.readdir(logsDir);
+    const logFiles = files.filter(f => f.endsWith('.log'));
+
+    if (logFiles.length === 0) {
+      return;
+    }
+
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    const filesToDelete: string[] = [];
+
+    const fileStats = await Promise.all(
+      logFiles.map(async (file) => {
+        const filePath = path.join(logsDir, file);
+        const stat = await fsExtra.stat(filePath);
+        return { file, filePath, mtime: stat.mtime.getTime() };
+      })
+    );
+
+    for (const { filePath, mtime } of fileStats) {
+      if (now - mtime > maxAgeMs) {
+        filesToDelete.push(filePath);
+      }
+    }
+
+    const sortedFiles = fileStats.sort((a, b) => b.mtime - a.mtime);
+    if (sortedFiles.length > maxFiles) {
+      for (const { filePath } of sortedFiles.slice(maxFiles)) {
+        if (!filesToDelete.includes(filePath)) {
+          filesToDelete.push(filePath);
+        }
+      }
+    }
+
+    await Promise.all(filesToDelete.map(filePath => fsExtra.remove(filePath)));
+  } catch (error) {
+  }
+};
+
 export { ora };

@@ -16,6 +16,7 @@ import {
   runCommandWithLogging,
   ensureDir,
   writeJson,
+  rotateLogsInDirectory,
 } from "./utils";
 import type { CommandError } from "./utils";
 import { getUserConfig } from "./user-config";
@@ -282,6 +283,7 @@ const runInitScript = async (resolved: ResolvedWorkspaceConfig, logger: Logger):
 
   const logsDir = path.join(os.homedir(), ".workspaces", "logs");
   await ensureDir(logsDir);
+  await rotateLogsInDirectory(logsDir);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
   const logFile = path.join(logsDir, `${resolved.workspace.name}-${timestamp}.log`);
   const headerLines = [
