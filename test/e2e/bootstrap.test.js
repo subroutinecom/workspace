@@ -85,7 +85,7 @@ echo "Script 4 executed" >> /home/workspace/bootstrap.log
 
     let missingScriptError = null;
     try {
-      execSync(`cd ${workspaceDir} && node ${path.join(__dirname, '../../dist/index.js')} start --config .workspace-missing.yml --force-recreate`, {
+      execSync(`cd ${workspaceDir} && node ${path.join(__dirname, '../../dist/index.js')} start --config .workspace-missing.yml --force-recreate --no-shell`, {
         stdio: 'pipe',
       });
     } catch (err) {
@@ -98,7 +98,7 @@ echo "Script 4 executed" >> /home/workspace/bootstrap.log
 
     let nonexecError = null;
     try {
-      execSync(`cd ${workspaceDir} && node ${path.join(__dirname, '../../dist/index.js')} start --config .workspace-nonexec.yml --force-recreate`, {
+      execSync(`cd ${workspaceDir} && node ${path.join(__dirname, '../../dist/index.js')} start --config .workspace-nonexec.yml --force-recreate --no-shell`, {
         stdio: 'pipe',
       });
     } catch (err) {

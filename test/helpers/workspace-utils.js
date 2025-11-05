@@ -141,6 +141,7 @@ function startWorkspace(name, options = {}) {
   if (options.rebuild) args.push("--rebuild");
   if (options.noCache) args.push("--no-cache");
   if (options.forceRecreate) args.push("--force-recreate");
+  args.push("--no-shell");
 
   const workspaceDir = path.join(TEST_WORKSPACES_DIR, name);
   if (fs.existsSync(path.join(workspaceDir, ".workspace.yml"))) {

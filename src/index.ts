@@ -343,6 +343,30 @@ const verifyRepositoryClone = async (
   }
 };
 
+const openShell = async (containerName: string, user = "workspace"): Promise<void> => {
+  let userShell = "/bin/bash";
+  try {
+    const { stdout } = await runCommand("docker", ["exec", "-u", user, containerName, "getent", "passwd", user]);
+    const passwdEntry = stdout.trim();
+    if (passwdEntry) {
+      const shellPath = passwdEntry.split(":")[6];
+      if (shellPath) {
+        userShell = shellPath;
+      }
+    }
+  } catch (err) {}
+
+  const args = ["exec", "-u", user, containerName];
+
+  if (process.env.TERM) {
+    args.splice(1, 0, "-e", `TERM=${process.env.TERM}`);
+  }
+
+  args.splice(1, 0, "-it");
+  args.push(userShell);
+  await runCommandStreaming("docker", args);
+};
+
 program
   .command("init")
   .description("Create a .workspace.yml config file in the current directory")
@@ -410,6 +434,7 @@ program
   .option("--no-cache", "rebuild image without cache (implies --rebuild)", false)
   .option("--force-recreate", "remove any existing container before starting", false)
   .option("--no-init", "skip running workspace-internal init after start", false)
+  .option("--no-shell", "do not automatically open a shell after starting")
   .option("-v, --verbose", "show detailed output instead of spinner", false)
   .option("--path <path>", "use workspace configuration from a specific path")
   .action(async (workspaceName, options) => {
@@ -441,7 +466,11 @@ program
           }
 
           logger.succeed("Workspace started");
-          console.log(`Connect with: workspace shell ${workspaceName}`);
+          if (options.shell !== false) {
+            await openShell(wsInfo.containerName);
+          } else {
+            console.log(`Connect with: workspace shell ${workspaceName}`);
+          }
           return;
         } catch (err) {
           logger.fail("Failed to start workspace");
@@ -524,7 +553,11 @@ program
           }
 
           logger.succeed("Workspace started");
-          console.log(`Connect with: ${cliHint}`);
+          if (options.shell !== false) {
+            await openShell(resolved.workspace.containerName);
+          } else {
+            console.log(`Connect with: workspace shell ${workspaceName}`);
+          }
           return;
         }
       }
@@ -551,9 +584,15 @@ program
       if (runtime.forwards.length) {
         console.log(`  Port forwarding: ${runtime.forwards.map((port) => `${port}`).join(", ")}`);
       }
-      console.log(`  Connect with: ${cliHint}`);
-      if (runtime.forwards.length) {
-        console.log(`  Forward ports: ${proxyHint}`);
+      if (options.shell !== false) {
+        await openShell(resolved.workspace.containerName);
+      } else {
+        const cliHint = `workspace shell${wsName ? " " + wsName : ""}`;
+        const proxyHint = `workspace proxy${wsName ? " " + wsName : ""}`;
+        console.log(`  Connect with: ${cliHint}`);
+        if (runtime.forwards.length) {
+          console.log(`  Forward ports: ${proxyHint}`);
+        }
       }
     } catch (err) {
       logger.fail("Failed to start workspace");
@@ -805,32 +844,31 @@ program
     }
     const user = options.root ? "root" : options.user;
 
-    let userShell = "/bin/bash";
-    try {
-      const { stdout } = await runCommand("docker", ["exec", "-u", user, wsInfo.containerName, "getent", "passwd", user]);
-      const passwdEntry = stdout.trim();
-      if (passwdEntry) {
-        const shellPath = passwdEntry.split(":")[6];
-        if (shellPath) {
-          userShell = shellPath;
-        }
-      }
-    } catch (err) {}
-
-    const args = ["exec", "-u", user, wsInfo.containerName];
-
-    if (process.env.TERM) {
-      args.splice(1, 0, "-e", `TERM=${process.env.TERM}`);
-    }
-
     if (options.command) {
+      let userShell = "/bin/bash";
+      try {
+        const { stdout } = await runCommand("docker", ["exec", "-u", user, wsInfo.containerName, "getent", "passwd", user]);
+        const passwdEntry = stdout.trim();
+        if (passwdEntry) {
+          const shellPath = passwdEntry.split(":")[6];
+          if (shellPath) {
+            userShell = shellPath;
+          }
+        }
+      } catch (err) {}
+
+      const args = ["exec", "-u", user, wsInfo.containerName];
+
+      if (process.env.TERM) {
+        args.splice(1, 0, "-e", `TERM=${process.env.TERM}`);
+      }
+
       args.splice(1, 0, "-i");
       args.push(userShell, "-c", options.command);
+      await runCommandStreaming("docker", args);
     } else {
-      args.splice(1, 0, "-it");
-      args.push(userShell);
+      await openShell(wsInfo.containerName, user);
     }
-    await runCommandStreaming("docker", args);
   });
 
 program
