@@ -447,8 +447,8 @@ export const resolveConfig = async (
         target: "/home/workspace/.local/share/opencode/auth.json",
       },
       {
-        source: path.join(homeDir, ".claude", ".credentials.json"),
-        target: "/home/workspace/.claude/.credentials.json",
+        source: path.join(homeDir, ".claude"),
+        target: "/home/workspace/.claude",
       },
     ];
 
