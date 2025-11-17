@@ -1,5 +1,9 @@
 # Workspace CLI
 
+[![Tests](https://github.com/subroutinecom/workspace/actions/workflows/test.yml/badge.svg)](https://github.com/subroutinecom/workspace/actions/workflows/test.yml)
+[![npm version](https://badge.fury.io/js/@subroutinecom%2Fworkspace.svg)](https://www.npmjs.com/package/@subroutinecom/workspace)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Containerized development environments with Docker-in-Docker, SSH access, and persistent storage.
 
 ## Install

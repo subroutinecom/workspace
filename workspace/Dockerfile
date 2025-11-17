@@ -51,7 +51,9 @@ RUN apt-get update && apt-get install -y \
   ripgrep \
   fd-find \
   fzf \
-  zsh
+  zsh \
+  luarocks \
+  imagemagick
 
 # Install build dependencies for Neovim
 RUN apt-get update && apt-get install -y \
@@ -125,6 +127,31 @@ RUN curl -fsSL https://deno.land/install.sh | sh \
   && mv /root/.deno/bin/deno /usr/local/bin/deno \
   && deno --version
 
+RUN ARCH=$(dpkg --print-architecture) \
+  && if [ "$ARCH" = "amd64" ]; then GO_ARCH="amd64"; elif [ "$ARCH" = "arm64" ]; then GO_ARCH="arm64"; else GO_ARCH="$ARCH"; fi \
+  && curl -fsSL "https://go.dev/dl/go1.23.4.linux-${GO_ARCH}.tar.gz" -o /tmp/go.tar.gz \
+  && tar -C /usr/local -xzf /tmp/go.tar.gz \
+  && rm /tmp/go.tar.gz \
+  && /usr/local/go/bin/go version
+
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+RUN ARCH=$(dpkg --print-architecture) \
+  && if [ "$ARCH" = "amd64" ]; then LAZYGIT_ARCH="x86_64"; elif [ "$ARCH" = "arm64" ]; then LAZYGIT_ARCH="arm64"; else LAZYGIT_ARCH="$ARCH"; fi \
+  && LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep -Po '"tag_name": "v\K[^"]*') \
+  && curl -fsSL "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${LAZYGIT_VERSION}_Linux_${LAZYGIT_ARCH}.tar.gz" -o /tmp/lazygit.tar.gz \
+  && tar -C /usr/local/bin -xzf /tmp/lazygit.tar.gz lazygit \
+  && rm /tmp/lazygit.tar.gz \
+  && lazygit --version
+
+RUN ARCH=$(dpkg --print-architecture) \
+  && if [ "$ARCH" = "amd64" ]; then TECTONIC_ARCH="x86_64-unknown-linux-gnu"; elif [ "$ARCH" = "arm64" ]; then TECTONIC_ARCH="aarch64-unknown-linux-gnu"; else TECTONIC_ARCH="$ARCH"; fi \
+  && TECTONIC_VERSION=$(curl -s "https://api.github.com/repos/tectonic-typesetting/tectonic/releases/latest" | grep -Po '"tag_name": "tectonic@\K[^"]*') \
+  && curl -fsSL "https://github.com/tectonic-typesetting/tectonic/releases/latest/download/tectonic-${TECTONIC_VERSION}-${TECTONIC_ARCH}.tar.gz" -o /tmp/tectonic.tar.gz \
+  && tar -C /usr/local/bin -xzf /tmp/tectonic.tar.gz \
+  && rm /tmp/tectonic.tar.gz \
+  && tectonic --version
+
 # Create workspace user with passwordless sudo
 RUN useradd -m -s /bin/bash workspace \
   && echo "workspace:workspace" | chpasswd \
@@ -136,7 +163,8 @@ RUN useradd -m -s /bin/bash workspace \
 USER workspace
 RUN mkdir -p /home/workspace/.npm-global \
   && npm config set prefix '/home/workspace/.npm-global' \
-  && npm install -g yarn
+  && npm install -g yarn \
+  && npm install -g @mermaid-js/mermaid-cli
 
 USER root
 ENV PATH="/home/workspace/.npm-global/bin:/root/.local/bin:/home/workspace/.local/bin:${PATH}"
