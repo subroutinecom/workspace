@@ -1,5 +1,7 @@
 # Workspace CLI
 
+[![Tests](https://github.com/subroutinecom/workspace/actions/workflows/test.yml/badge.svg)](https://github.com/subroutinecom/workspace/actions/workflows/test.yml)
+
 Containerized development environments with Docker-in-Docker, SSH access, and persistent storage.
 
 ## Install
