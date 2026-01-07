@@ -6,6 +6,8 @@
 
 Containerized development environments with Docker-in-Docker, SSH access, and persistent storage.
 
+![Demo](assets/demo.gif)
+
 ## Install
 
 ```bash
